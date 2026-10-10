@@ -9,7 +9,7 @@
 
 Each task is documented in a dedicated markdown specification file under `tasks/` with granular step-by-step checkboxes.
 
-- [ ] [tasks/task-1-project-setup.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-1-project-setup.md) — **Task 1: Project Setup & Config** (`package.json`, `esbuild.config.mjs`, `manifest.json`, `tsconfig.json`)
+- [x] [tasks/task-1-project-setup.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-1-project-setup.md) — **Task 1: Project Setup & Config** (`package.json`, `esbuild.config.mjs`, `manifest.json`, `tsconfig.json`)
 - [ ] [tasks/task-2-ribbon-and-commands.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-2-ribbon-and-commands.md) — **Task 2: Custom Ribbon Icon & Command Registration** (`src/ui/icons.ts`, `src/main.ts`)
 - [ ] [tasks/task-3-tts-engine-and-queue.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-3-tts-engine-and-queue.md) — **Task 3: Zero-Setup Kokoro Engine & Queue** (`src/engine/ttsEngine.ts`)
 - [ ] [tasks/task-4-markdown-cleaner.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-4-markdown-cleaner.md) — **Task 4: Markdown Cleaner & Sentence Segmenter** (`src/engine/cleaner.ts`)

@@ -1,0 +1,9 @@
+{
+  "id": "lets-hear-it",
+  "name": "let's hear it",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Zero-setup local neural text-to-speech with live word tracking.",
+  "author": "Antigravity",
+  "isDesktopOnly": true
+}
