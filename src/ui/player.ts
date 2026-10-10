@@ -1,11 +1,13 @@
 import { setIcon } from "obsidian";
 import { TTSEngine, TTSState } from "../engine/ttsEngine";
+import { GLASSES_ICON_ID } from "./icons";
 
 export interface FloatingPlayerOptions {
 	ttsEngine: TTSEngine;
 	onClose?: () => void;
 	onVoiceChange?: (voice: string) => void;
 	onPlay?: () => void;
+	onToggleHearingMode?: () => void;
 }
 
 export class FloatingPlayer {
@@ -14,6 +16,7 @@ export class FloatingPlayer {
 	private subtextEl: HTMLElement | null = null;
 	private playPauseBtn: HTMLButtonElement | null = null;
 	private stopBtn: HTMLButtonElement | null = null;
+	private modeBtn: HTMLButtonElement | null = null;
 	private speedSelect: HTMLSelectElement | null = null;
 	private voiceSelect: HTMLSelectElement | null = null;
 	private isVisible = false;
@@ -22,12 +25,14 @@ export class FloatingPlayer {
 	private onClose?: () => void;
 	private onVoiceChange?: (voice: string) => void;
 	private onPlay?: () => void;
+	private onToggleHearingMode?: () => void;
 
 	constructor(options: FloatingPlayerOptions) {
 		this.ttsEngine = options.ttsEngine;
 		this.onClose = options.onClose;
 		this.onVoiceChange = options.onVoiceChange;
 		this.onPlay = options.onPlay;
+		this.onToggleHearingMode = options.onToggleHearingMode;
 	}
 
 	/**
@@ -112,6 +117,19 @@ export class FloatingPlayer {
 			this.ttsEngine.stop();
 		});
 		this.stopBtn = stopBtn;
+
+		// Hearing Mode View Toggle Button (Glasses / Reading Mode)
+		const modeBtn = controlsEl.createEl("button", {
+			cls: "lets-hear-it-btn",
+			attr: { "aria-label": "Toggle Hearing Mode (Reading View)", title: "Toggle Hearing Mode (Reading View)" },
+		});
+		setIcon(modeBtn, GLASSES_ICON_ID);
+		modeBtn.addEventListener("click", () => {
+			if (this.onToggleHearingMode) {
+				this.onToggleHearingMode();
+			}
+		});
+		this.modeBtn = modeBtn;
 
 		// Speed Selector
 		const speedSelect = controlsEl.createEl("select", {

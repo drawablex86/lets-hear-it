@@ -4,11 +4,15 @@ import type LetsHearItPlugin from "./main";
 export interface LetsHearItSettings {
 	voice: string;
 	playbackSpeed: number;
+	hearingModeOnPlay: boolean;
+	autoScroll: boolean;
 }
 
 export const DEFAULT_SETTINGS: LetsHearItSettings = {
 	voice: "af_heart",
 	playbackSpeed: 1.0,
+	hearingModeOnPlay: true,
+	autoScroll: true,
 };
 
 export interface VoiceOption {
@@ -102,6 +106,31 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 					this.plugin.settings.playbackSpeed = speed;
 					await this.plugin.saveSettings();
 					this.plugin.getTTSEngine()?.setPlaybackRate(speed);
+				});
+			});
+
+		// Hearing Mode Setting
+		new Setting(containerEl)
+			.setName("Auto-switch to Hearing Mode (Reading View)")
+			.setDesc("Automatically switches the active note to Reading View during playback for distraction-free listening and rock-solid highlight tracking.")
+			.addToggle((toggle) => {
+				toggle.setValue(this.plugin.settings.hearingModeOnPlay);
+				toggle.onChange(async (val) => {
+					this.plugin.settings.hearingModeOnPlay = val;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		// Auto-Scroll Setting
+		new Setting(containerEl)
+			.setName("Auto-scroll during playback")
+			.setDesc("Smoothly centers the current sentence in the viewport when it nears the top or bottom edges.")
+			.addToggle((toggle) => {
+				toggle.setValue(this.plugin.settings.autoScroll);
+				toggle.onChange(async (val) => {
+					this.plugin.settings.autoScroll = val;
+					await this.plugin.saveSettings();
+					this.plugin.getHighlighter()?.setAutoScroll(val);
 				});
 			});
 	}

@@ -17,10 +17,27 @@ export class WordHighlighter {
 	private lastHighlightedSentence = -1;
 	private lastHighlightedWord = -1;
 
+	// Block-anchored tracking
+	private activeBlockEl: HTMLElement | null = null;
+	private activeBlockTextNodes: Text[] = [];
+	private activeBlockSentenceIndex = -1;
+
+	// Viewport auto-scroll settings & throttle
+	private autoScrollEnabled = true;
+	private lastScrollTimestamp = 0;
+
 	// Fallback DOM highlight elements if CSS Custom Highlight API is unavailable or non-rendering
 	private fallbackSpanEl: HTMLElement | null = null;
 
 	constructor() {}
+
+	public setAutoScroll(enabled: boolean): void {
+		this.autoScrollEnabled = enabled;
+	}
+
+	public getAutoScroll(): boolean {
+		return this.autoScrollEnabled;
+	}
 
 	/**
 	 * Precomputes proportional word duration offsets for all sentences based on synthesized audio duration.
@@ -70,6 +87,90 @@ export class WordHighlighter {
 		if (this.activeView !== view) {
 			this.clearHighlight();
 			this.activeView = view;
+			this.activeBlockEl = null;
+			this.activeBlockTextNodes = [];
+			this.activeBlockSentenceIndex = -1;
+		}
+	}
+
+	/**
+	 * Pins the specific DOM block container (<p>, <li>, <h*>, or .cm-line)
+	 * for the active sentence and checks viewport visibility.
+	 */
+	public setActiveSentence(sentenceIndex: number, sentenceChunk: SentenceChunk): void {
+		this.activeBlockSentenceIndex = sentenceIndex;
+		this.activeBlockEl = null;
+		this.activeBlockTextNodes = [];
+
+		if (!this.activeView) return;
+
+		const containerEl = this.activeView.containerEl;
+		if (!containerEl) return;
+
+		const readingView = containerEl.querySelector(".markdown-reading-view") as HTMLElement | null;
+		const editorView = containerEl.querySelector(".cm-content") as HTMLElement | null;
+
+		let searchRoot: HTMLElement | null = null;
+		if (readingView && readingView.offsetParent !== null) {
+			searchRoot = readingView;
+		} else if (editorView && editorView.offsetParent !== null) {
+			searchRoot = editorView;
+		} else {
+			searchRoot = readingView || editorView || containerEl;
+		}
+
+		if (!searchRoot) return;
+
+		// 1. Locate candidate block elements (<p>, <li>, <h1>-<h6>, blockquote, or .cm-line)
+		const blockSelectors = "p, li, h1, h2, h3, h4, h5, h6, blockquote, .cm-line";
+		const candidateBlocks = Array.from(searchRoot.querySelectorAll(blockSelectors)) as HTMLElement[];
+
+		// Find block containing key snippet of the sentence
+		const cleanSnippet = sentenceChunk.words
+			.slice(0, 4)
+			.map((w) => w.word.replace(/^[^\w]+|[^\w]+$/g, ""))
+			.filter((w) => w.length >= 2)
+			.join(" ");
+
+		let matchedBlock: HTMLElement | null = null;
+
+		if (cleanSnippet.length > 0) {
+			for (const block of candidateBlocks) {
+				const blockText = (block.textContent || "").toLowerCase();
+				if (blockText.includes(cleanSnippet.toLowerCase())) {
+					matchedBlock = block;
+					break;
+				}
+			}
+		}
+
+		// Fallback: match by first 2 words if snippet was not found
+		if (!matchedBlock && sentenceChunk.words.length > 0) {
+			const firstWord = sentenceChunk.words[0].word.replace(/^[^\w]+|[^\w]+$/g, "").toLowerCase();
+			for (const block of candidateBlocks) {
+				const blockText = (block.textContent || "").toLowerCase();
+				if (blockText.includes(firstWord)) {
+					matchedBlock = block;
+					break;
+				}
+			}
+		}
+
+		this.activeBlockEl = matchedBlock || searchRoot;
+
+		// 2. Cache text nodes strictly inside this active block
+		const walker = document.createTreeWalker(this.activeBlockEl, NodeFilter.SHOW_TEXT);
+		let node = walker.nextNode();
+		while (node) {
+			if (node.nodeType === Node.TEXT_NODE && node.textContent && node.textContent.trim().length > 0) {
+				this.activeBlockTextNodes.push(node as Text);
+			}
+			node = walker.nextNode();
+		}
+
+		// 3. Smoothly center the block in viewport if autoScroll is enabled
+		if (this.autoScrollEnabled && this.activeBlockEl) {
+			this.ensureVisibleInViewport(this.activeBlockEl, true);
 		}
 	}
 
@@ -82,6 +183,11 @@ export class WordHighlighter {
 		if (!wordTimings || !sentenceChunk || wordTimings.length === 0) {
 			this.clearHighlight();
 			return;
+		}
+
+		// Ensure active block is pinned
+		if (this.activeBlockSentenceIndex !== sentenceIndex || !this.activeBlockEl) {
+			this.setActiveSentence(sentenceIndex, sentenceChunk);
 		}
 
 		// Find which word corresponds to currentElapsedSeconds
@@ -109,131 +215,116 @@ export class WordHighlighter {
 		this.lastHighlightedSentence = sentenceIndex;
 		this.lastHighlightedWord = activeWordIndex;
 
-		this.applyHighlight(sentenceIndex, activeWordIndex, targetWord.word, sentenceChunk.text);
+		this.applyHighlight(activeWordIndex, targetWord.word, sentenceChunk);
 	}
 
 	/**
-	 * Finds the active target container (Reading view or Live Preview/Editing view)
-	 * and highlights the matching word in context.
+	 * Highlights targetWord strictly within the pinned active block container.
 	 */
-	private applyHighlight(sentenceIndex: number, wordIndex: number, targetWord: string, sentenceContext: string): void {
-		if (!this.activeView) {
+	private applyHighlight(wordIndex: number, targetWord: string, sentenceChunk: SentenceChunk): void {
+		if (!this.activeView || !this.activeBlockEl) {
 			return;
 		}
 
-		// 1. Locate root view container (support Reading mode, Live Preview, and Source view)
-		const containerEl = this.activeView.containerEl;
-		if (!containerEl) {
-			this.clearHighlight();
-			return;
-		}
+		const cleanWord = targetWord.replace(/^[^\w]+|[^\w]+$/g, "");
+		if (!cleanWord) return;
 
-		// Check for Live Preview / Editor view first, or Reading view
-		const readingView = containerEl.querySelector(".markdown-reading-view") as HTMLElement | null;
-		const editorView = containerEl.querySelector(".cm-content") as HTMLElement | null;
-
-		// Prioritize visible container
-		let searchRoot: HTMLElement | null = null;
-		if (editorView && editorView.offsetParent !== null) {
-			searchRoot = editorView;
-		} else if (readingView && readingView.offsetParent !== null) {
-			searchRoot = readingView;
-		} else {
-			searchRoot = editorView || readingView || containerEl;
-		}
-
-		if (!searchRoot) {
-			this.clearHighlight();
-			return;
-		}
-
-		const range = this.findContextualRange(searchRoot, targetWord, sentenceContext, wordIndex);
-		if (range) {
-			this.currentHighlightRange = range;
-			this.applyRangeHighlight(range);
-
-			// Scroll element into view smoothly if needed
-			try {
-				const nodeParent = range.commonAncestorContainer.parentElement;
-				if (nodeParent && typeof nodeParent.scrollIntoView === "function") {
-					nodeParent.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
-				}
-			} catch (_) {}
-		} else {
-			this.clearHighlight();
-		}
-	}
-
-	/**
-	 * Contextual range search that locates the sentence first, then the word occurrence in context
-	 */
-	private findContextualRange(root: HTMLElement, word: string, sentenceContext: string, wordIndex: number): Range | null {
-		// Clean target word for punctuation matching
-		const cleanWord = word.replace(/^[^\w]+|[^\w]+$/g, "");
-		if (!cleanWord) return null;
-
-		// 1. Collect text nodes
-		const treeWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-		const textNodes: Text[] = [];
-		let currentNode = treeWalker.nextNode();
-		while (currentNode) {
-			if (currentNode.nodeType === Node.TEXT_NODE && currentNode.textContent?.trim()) {
-				textNodes.push(currentNode as Text);
+		// Calculate occurrence index of cleanWord in sentence up to wordIndex
+		let targetOccurrence = 0;
+		for (let i = 0; i < wordIndex; i++) {
+			const prev = sentenceChunk.words[i]?.word.replace(/^[^\w]+|[^\w]+$/g, "");
+			if (prev && prev.toLowerCase() === cleanWord.toLowerCase()) {
+				targetOccurrence++;
 			}
-			currentNode = treeWalker.nextNode();
 		}
 
-		if (textNodes.length === 0) return null;
+		// Search strictly inside cached text nodes of active block
+		let currentOccurrence = 0;
+		let targetRange: Range | null = null;
 
-		// 2. Extract leading clean tokens of sentenceContext for contextual matching
-		const cleanSentenceWords = sentenceContext
-			.split(/\s+/)
-			.map((w) => w.replace(/^[^\w]+|[^\w]+$/g, ""))
-			.filter(Boolean);
+		for (const textNode of this.activeBlockTextNodes) {
+			const text = textNode.textContent || "";
+			const wordRegex = new RegExp(`\\b${this.escapeRegExp(cleanWord)}\\b`, "gi");
+			let match: RegExpExecArray | null;
 
-		const anchorWord = cleanSentenceWords[0] || cleanWord;
-
-		// Find candidate nodes that match anchor or target word
-		let candidateNodeIndex = -1;
-		if (anchorWord) {
-			for (let i = 0; i < textNodes.length; i++) {
-				if (textNodes[i].textContent?.includes(anchorWord)) {
-					candidateNodeIndex = i;
+			while ((match = wordRegex.exec(text)) !== null) {
+				if (currentOccurrence === targetOccurrence) {
+					const range = document.createRange();
+					range.setStart(textNode, match.index);
+					range.setEnd(textNode, match.index + match[0].length);
+					targetRange = range;
 					break;
 				}
+				currentOccurrence++;
+			}
+			if (targetRange) break;
+		}
+
+		// Fallback: substring matching if punctuation/formatting broke boundary
+		if (!targetRange) {
+			currentOccurrence = 0;
+			for (const textNode of this.activeBlockTextNodes) {
+				const text = textNode.textContent || "";
+				let searchPos = 0;
+
+				while (searchPos < text.length) {
+					const idx = text.toLowerCase().indexOf(cleanWord.toLowerCase(), searchPos);
+					if (idx === -1) break;
+
+					if (currentOccurrence === targetOccurrence) {
+						const range = document.createRange();
+						range.setStart(textNode, idx);
+						range.setEnd(textNode, idx + cleanWord.length);
+						targetRange = range;
+						break;
+					}
+					currentOccurrence++;
+					searchPos = idx + cleanWord.length;
+				}
+				if (targetRange) break;
 			}
 		}
 
-		// Search from the sentence candidate node forward, or fall back to scanning all nodes
-		const searchStartIndex = candidateNodeIndex >= 0 ? candidateNodeIndex : 0;
-		for (let i = searchStartIndex; i < textNodes.length; i++) {
-			const node = textNodes[i];
-			const text = node.textContent || "";
-			const wordRegex = new RegExp(`\\b${this.escapeRegExp(cleanWord)}\\b`, "i");
-			const match = wordRegex.exec(text);
+		if (targetRange) {
+			this.currentHighlightRange = targetRange;
+			this.applyRangeHighlight(targetRange);
 
-			if (match) {
-				const range = document.createRange();
-				range.setStart(node, match.index);
-				range.setEnd(node, match.index + match[0].length);
-				return range;
+			// Viewport threshold check: only scroll if the word nears top/bottom margins
+			if (this.autoScrollEnabled) {
+				const nodeParent = targetRange.commonAncestorContainer.parentElement;
+				if (nodeParent) {
+					this.ensureVisibleInViewport(nodeParent, false);
+				}
 			}
 		}
+	}
 
-		// Secondary fallback: substring search if word boundary regex didn't match (e.g. non-latin or hyphenated)
-		for (let i = searchStartIndex; i < textNodes.length; i++) {
-			const node = textNodes[i];
-			const text = node.textContent || "";
-			const idx = text.indexOf(cleanWord);
-			if (idx !== -1) {
-				const range = document.createRange();
-				range.setStart(node, idx);
-				range.setEnd(node, idx + cleanWord.length);
-				return range;
-			}
+	/**
+	 * Checks if an element is comfortably inside the visible viewport.
+	 * Only scrolls if element is near the edges or outside, rate-limited to avoid jitter.
+	 */
+	private ensureVisibleInViewport(element: HTMLElement, forceScroll = false): void {
+		const now = Date.now();
+		// Throttle viewport scrolling to avoid micro-jitter during speech
+		if (!forceScroll && now - this.lastScrollTimestamp < 1200) {
+			return;
 		}
 
-		return null;
+		try {
+			const rect = element.getBoundingClientRect();
+			const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+
+			// Define comfortable top and bottom padding zones (120px)
+			const topMargin = 120;
+			const bottomMargin = windowHeight - 120;
+
+			const isComfortablyVisible = rect.top >= topMargin && rect.bottom <= bottomMargin;
+
+			if (!isComfortablyVisible || forceScroll) {
+				this.lastScrollTimestamp = now;
+				element.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+			}
+		} catch (_) {}
 	}
 
 	private escapeRegExp(string: string): string {
@@ -263,7 +354,7 @@ export class WordHighlighter {
 			range.surroundContents(span);
 			this.fallbackSpanEl = span;
 		} catch (_) {
-			// surroundContents may fail if range crosses node boundaries; safely ignore
+			// Safely ignore if range crosses node boundaries
 		}
 	}
 
@@ -283,6 +374,9 @@ export class WordHighlighter {
 		this.currentHighlightRange = null;
 		this.lastHighlightedSentence = -1;
 		this.lastHighlightedWord = -1;
+		this.activeBlockEl = null;
+		this.activeBlockTextNodes = [];
+		this.activeBlockSentenceIndex = -1;
 
 		if (this.isCssHighlightSupported()) {
 			try {

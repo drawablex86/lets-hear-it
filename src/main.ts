@@ -1,5 +1,5 @@
 import { Plugin, addIcon, MarkdownView, Notice, FileSystemAdapter } from "obsidian";
-import { EAR_ICON_ID, EAR_ICON_SVG } from "./ui/icons";
+import { EAR_ICON_ID, EAR_ICON_SVG, GLASSES_ICON_ID, GLASSES_ICON_SVG } from "./ui/icons";
 import { TTSEngine, TTSState } from "./engine/ttsEngine";
 import { cleanMarkdownForSpeech, SentenceChunk } from "./engine/cleaner";
 import { FloatingPlayer } from "./ui/player";
@@ -32,14 +32,16 @@ export default class LetsHearItPlugin extends Plugin {
 		// 1. Configure ONNX WASM asset directory path for Electron sandbox
 		this.configureWasmDirectory();
 
-		// 2. Register custom ear icon
+		// 2. Register custom ear icon and glasses icon
 		addIcon(EAR_ICON_ID, EAR_ICON_SVG);
+		addIcon(GLASSES_ICON_ID, GLASSES_ICON_SVG);
 
 		// 3. Register Settings Tab
 		this.addSettingTab(new LetsHearItSettingTab(this.app, this));
 
 		// 4. Initialize components
 		this.highlighter = new WordHighlighter();
+		this.highlighter.setAutoScroll(this.settings.autoScroll);
 
 		// 5. Add ribbon icon to left sidebar with autoplay-safe resume
 		this.addRibbonIcon(
@@ -154,6 +156,7 @@ export default class LetsHearItPlugin extends Plugin {
 				onSentenceStart: (sentenceIndex: number, item) => {
 					if (this.highlighter && this.currentSentences[sentenceIndex]) {
 						this.highlighter.updateSentenceDuration(sentenceIndex, this.currentSentences[sentenceIndex], item.duration);
+						this.highlighter.setActiveSentence(sentenceIndex, this.currentSentences[sentenceIndex]);
 					}
 					this.player?.setSentenceProgress(sentenceIndex, this.currentSentences.length);
 				},
@@ -188,10 +191,35 @@ export default class LetsHearItPlugin extends Plugin {
 				onPlay: async () => {
 					await this.readCurrentNote();
 				},
+				onToggleHearingMode: async () => {
+					await this.toggleHearingMode();
+				},
 			});
 		}
 
 		return this.audioContext;
+	}
+
+	private previousViewMode: string | null = null;
+
+	public async toggleHearingMode(): Promise<void> {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) return;
+
+		const currentMode = activeView.getMode();
+		const targetMode = currentMode === "preview" ? "source" : "preview";
+		await activeView.leaf.setViewState({
+			...activeView.leaf.getViewState(),
+			state: {
+				...activeView.leaf.getViewState().state,
+				mode: targetMode,
+			},
+		});
+
+		new Notice(`Switched to ${targetMode === "preview" ? "Hearing Mode (Reading View)" : "Editing Mode"}`);
+		if (this.highlighter) {
+			this.highlighter.setActiveView(activeView);
+		}
 	}
 
 	public async togglePlayback(): Promise<void> {
@@ -221,6 +249,21 @@ export default class LetsHearItPlugin extends Plugin {
 			if (!activeView) {
 				new Notice("No active markdown note to read.");
 				return;
+			}
+
+			// If hearingModeOnPlay setting is enabled and not already in preview mode, switch to preview
+			if (this.settings.hearingModeOnPlay) {
+				const currentMode = activeView.getMode();
+				if (currentMode !== "preview") {
+					this.previousViewMode = currentMode;
+					await activeView.leaf.setViewState({
+						...activeView.leaf.getViewState(),
+						state: {
+							...activeView.leaf.getViewState().state,
+							mode: "preview",
+						},
+					});
+				}
 			}
 
 			await this.ensureAudioContext();
@@ -268,6 +311,21 @@ export default class LetsHearItPlugin extends Plugin {
 		if (this.player) {
 			this.player.hide();
 		}
+
+		// Restore previous mode if user was switched automatically
+		if (this.previousViewMode) {
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (activeView && activeView.getMode() !== this.previousViewMode) {
+				activeView.leaf.setViewState({
+					...activeView.leaf.getViewState(),
+					state: {
+						...activeView.leaf.getViewState().state,
+						mode: this.previousViewMode,
+					},
+				}).catch(() => {});
+			}
+			this.previousViewMode = null;
+		}
 	}
 
 	public async loadSettings(): Promise<void> {
@@ -280,5 +338,9 @@ export default class LetsHearItPlugin extends Plugin {
 
 	public getTTSEngine(): TTSEngine | null {
 		return this.ttsEngine;
+	}
+
+	public getHighlighter(): WordHighlighter | null {
+		return this.highlighter;
 	}
 }

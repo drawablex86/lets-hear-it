@@ -120,6 +120,13 @@ const mockObsidian = {
       });
       return this;
     }
+    addToggle(cb) {
+      cb({
+        setValue: (v) => {},
+        onChange: (handler) => {}
+      });
+      return this;
+    }
     addSlider() { return this; }
   },
   setIcon: () => {},
