@@ -35,16 +35,57 @@ const copyWasmPlugin = {
 							}
 						} else if (file.endsWith(".mjs")) {
 							let content = fs.readFileSync(path.join(ortDistPath, file), "utf8");
-							// Sanitize node-only imports that cause browser ES module syntax errors in Electron
+							// 1. Sanitize node-only imports that cause browser ES module syntax errors in Electron
 							content = content.replace(/await\s+import\s*\(\s*["']module["']\s*\)/g, "{ createRequire: () => () => ({}) }");
 							content = content.replace(/await\s+import\s*\(\s*["']worker_threads["']\s*\)/g, "{ workerData: undefined }");
 							content = content.replace(/require\s*\(\s*["']worker_threads["']\s*\)/g, "{}");
+
+							// 2. Intercept WASM binary fetch to load directly from local filesystem in Electron
+							const wasmFetchPattern = /var\s+b\s*=\s*await\s+fetch\s*\(\s*a\s*,\s*\{\s*credentials:\s*"same-origin"\s*\}\s*\);\s*if\s*\(\s*b\.ok\s*\)\s*return\s+b\.arrayBuffer\(\);/g;
+							const wasmFsReplacement = `if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+								const fs = require("fs");
+								const p = decodeURIComponent(a.replace(/^file:\\/\\//, ""));
+								if (fs.existsSync(p)) {
+									const buf = fs.readFileSync(p);
+									return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+								}
+							}
+							var b = await fetch(a, { credentials: "same-origin" });
+							if (b.ok) return b.arrayBuffer();`;
+							content = content.replace(wasmFetchPattern, wasmFsReplacement);
+
 							for (const targetDir of targets) {
 								fs.writeFileSync(path.join(targetDir, file), content, "utf8");
 							}
 						}
 					}
 					console.log("[copy-wasm-plugin] onnxruntime-web .wasm and .mjs files copied and sanitized successfully.");
+				}
+
+				// Post-process main.js to intercept dynamic import(r) for file:// URLs
+				const mainJsPath = path.resolve("main.js");
+				if (fs.existsSync(mainJsPath)) {
+					let mainJs = fs.readFileSync(mainJsPath, "utf8");
+					// Replace (await import(r)).default with safe Blob URL dynamic importer
+					const search = `(await import(r)).default`;
+					const replacement = `(await (async (specifier) => {
+						if (typeof require === "function" && typeof specifier === "string" && specifier.startsWith("file://")) {
+							const fs = require("fs");
+							const filePath = decodeURIComponent(specifier.replace(/^file:\\/\\//, ""));
+							if (fs.existsSync(filePath)) {
+								const fileContent = fs.readFileSync(filePath, "utf8");
+								const blob = new Blob([fileContent], { type: "text/javascript" });
+								return import(URL.createObjectURL(blob));
+							}
+						}
+						return import(specifier);
+					})(r)).default`;
+
+					if (mainJs.includes(search)) {
+						mainJs = mainJs.replaceAll(search, replacement);
+						fs.writeFileSync(mainJsPath, mainJs, "utf8");
+						console.log("[copy-wasm-plugin] main.js dynamic import successfully patched with Blob URL loader.");
+					}
 				}
 
 				// Also sync main.js, manifest.json, styles.css to v0
