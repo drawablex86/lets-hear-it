@@ -127,7 +127,43 @@ const mockObsidian = {
       });
       return this;
     }
+    addText(cb) {
+      cb({
+        setPlaceholder: () => ({ setValue: () => ({ onChange: () => {} }) }),
+        setValue: () => ({ onChange: () => {} }),
+        onChange: () => {}
+      });
+      return this;
+    }
     addSlider() { return this; }
+  },
+  Modal: class {
+    constructor(app) {
+      this.app = app;
+      this.contentEl = {
+        empty: () => {},
+        addClass: () => {},
+        createEl: (t, o) => ({ addEventListener: () => {} }),
+        createDiv: () => ({
+          createEl: (t, o) => ({ addEventListener: () => {} }),
+          createDiv: () => ({
+            createDiv: () => ({ style: {} }),
+            style: {}
+          }),
+          removeClass: () => {},
+          addClass: () => {}
+        })
+      };
+    }
+    open() {}
+    close() {}
+  },
+  TFile: class {
+    constructor(basename = "Test Note") {
+      this.basename = basename;
+      this.extension = "md";
+      this.path = `${basename}.md`;
+    }
   },
   setIcon: () => {},
   addIcon: (id, svg) => { console.log(`[Obsidian addIcon]: ${id}`); },

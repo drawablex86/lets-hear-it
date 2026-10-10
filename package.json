@@ -19,6 +19,7 @@
   "author": "Antigravity",
   "license": "MIT",
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "kokoro-js": "^1.1.2",
     "onnxruntime-web": "^1.21.0"
   },

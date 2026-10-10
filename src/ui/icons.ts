@@ -15,3 +15,11 @@ export const GLASSES_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="cu
   <path d="M21.5 13 20 7c-.3-1.2-1.4-2-2.6-2H17" />
 </svg>`;
 
+export const RECORD_ICON_ID = "lets-hear-it-record";
+
+export const RECORD_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="10" />
+  <circle cx="12" cy="12" r="4" fill="currentColor" />
+</svg>`;
+
+

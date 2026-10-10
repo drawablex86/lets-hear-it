@@ -1,10 +1,11 @@
-import { Plugin, addIcon, MarkdownView, Notice, FileSystemAdapter } from "obsidian";
-import { EAR_ICON_ID, EAR_ICON_SVG, GLASSES_ICON_ID, GLASSES_ICON_SVG } from "./ui/icons";
+import { Plugin, addIcon, MarkdownView, Notice, FileSystemAdapter, TFile, MenuItem } from "obsidian";
+import { EAR_ICON_ID, EAR_ICON_SVG, GLASSES_ICON_ID, GLASSES_ICON_SVG, RECORD_ICON_ID, RECORD_ICON_SVG } from "./ui/icons";
 import { TTSEngine, TTSState } from "./engine/ttsEngine";
 import { cleanMarkdownForSpeech, SentenceChunk } from "./engine/cleaner";
 import { FloatingPlayer } from "./ui/player";
 import { WordHighlighter } from "./ui/highlighter";
 import { LetsHearItSettings, DEFAULT_SETTINGS, LetsHearItSettingTab } from "./settings";
+import { ExportMp3Modal } from "./ui/recordModal";
 
 export default class LetsHearItPlugin extends Plugin {
 	public settings: LetsHearItSettings = DEFAULT_SETTINGS;
@@ -32,9 +33,10 @@ export default class LetsHearItPlugin extends Plugin {
 		// 1. Configure ONNX WASM asset directory path for Electron sandbox
 		this.configureWasmDirectory();
 
-		// 2. Register custom ear icon and glasses icon
+		// 2. Register custom ear icon, glasses icon, and record icon
 		addIcon(EAR_ICON_ID, EAR_ICON_SVG);
 		addIcon(GLASSES_ICON_ID, GLASSES_ICON_SVG);
+		addIcon(RECORD_ICON_ID, RECORD_ICON_SVG);
 
 		// 3. Register Settings Tab
 		this.addSettingTab(new LetsHearItSettingTab(this.app, this));
@@ -43,17 +45,56 @@ export default class LetsHearItPlugin extends Plugin {
 		this.highlighter = new WordHighlighter();
 		this.highlighter.setAutoScroll(this.settings.autoScroll);
 
-		// 5. Add ribbon icon to left sidebar with autoplay-safe resume
+		// 5. Add ribbon icon to left sidebar with playback toggle
 		this.addRibbonIcon(
 			EAR_ICON_ID,
-			"let's hear it",
+			"let's hear it: Read current note",
 			async () => {
 				await this.ensureAudioContext();
 				await this.togglePlayback();
 			}
 		);
 
-		// 5. Register commands
+		// 6. Add record ribbon icon on the left to export note as MP3
+		this.addRibbonIcon(
+			RECORD_ICON_ID,
+			"let's hear it: Export note as MP3",
+			() => {
+				this.openExportModalForActiveNote();
+			}
+		);
+
+		// 7. Register context menu item on files in the file explorer
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				if (file instanceof TFile && file.extension === "md") {
+					menu.addItem((item: MenuItem) => {
+						item.setTitle("Export as MP3 with let's hear it")
+							.setIcon(RECORD_ICON_ID)
+							.onClick(() => {
+								new ExportMp3Modal(this.app, this, file).open();
+							});
+					});
+				}
+			})
+		);
+
+		// 8. Register editor context menu item
+		this.registerEvent(
+			this.app.workspace.on("editor-menu", (menu, editor, view) => {
+				if (view.file && view.file.extension === "md") {
+					menu.addItem((item: MenuItem) => {
+						item.setTitle("Export note to MP3")
+							.setIcon(RECORD_ICON_ID)
+							.onClick(() => {
+								new ExportMp3Modal(this.app, this, view.file!).open();
+							});
+					});
+				}
+			})
+		);
+
+		// 9. Register commands
 		this.addCommand({
 			id: "read-current-note",
 			name: "Read current note",
@@ -70,6 +111,21 @@ export default class LetsHearItPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "export-note-to-mp3",
+			name: "Export current note to MP3",
+			checkCallback: (checking: boolean) => {
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (activeView && activeView.file) {
+					if (!checking) {
+						new ExportMp3Modal(this.app, this, activeView.file).open();
+					}
+					return true;
+				}
+				return false;
+			},
+		});
+
+		this.addCommand({
 			id: "stop-reading",
 			name: "Stop reading",
 			callback: () => {
@@ -77,7 +133,7 @@ export default class LetsHearItPlugin extends Plugin {
 			},
 		});
 
-		// 6. Track view changes to clear highlights or update active leaf
+		// 10. Track view changes to clear highlights or update active leaf
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -299,6 +355,16 @@ export default class LetsHearItPlugin extends Plugin {
 		} finally {
 			this.isStartingPlayback = false;
 		}
+	}
+
+	public openExportModalForActiveNote(): void {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView || !activeView.file) {
+			new Notice("Please open a markdown note to export as MP3.");
+			return;
+		}
+
+		new ExportMp3Modal(this.app, this, activeView.file).open();
 	}
 
 	public stopReading(): void {

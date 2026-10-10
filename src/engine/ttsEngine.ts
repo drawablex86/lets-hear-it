@@ -312,6 +312,59 @@ export class TTSEngine {
 	}
 
 	/**
+	 * Synthesizes a list of sentences into a single continuous Float32Array (24kHz mono)
+	 * suitable for offline file saving (e.g. MP3 encoding).
+	 */
+	public async generateFullAudio(
+		sentences: string[],
+		voice: string,
+		onProgress?: (current: number, total: number, message?: string) => void
+	): Promise<Float32Array> {
+		const model = await this.initModel();
+		const sampleRate = 24000;
+		// Insert 250ms of silence between sentences for natural pacing
+		const pauseSamples = Math.floor(sampleRate * 0.25);
+		const pauseBuffer = new Float32Array(pauseSamples);
+
+		const audioChunks: Float32Array[] = [];
+		let totalSamples = 0;
+
+		for (let i = 0; i < sentences.length; i++) {
+			const sentence = sentences[i];
+			if (onProgress) {
+				onProgress(i + 1, sentences.length, `Synthesizing sentence ${i + 1} of ${sentences.length}...`);
+			}
+
+			const rawAudio = await model.generate(sentence, {
+				voice: voice as any,
+				speed: 1.0,
+			});
+
+			const chunk = rawAudio.audio; // Float32Array
+			if (chunk && chunk.length > 0) {
+				audioChunks.push(chunk);
+				totalSamples += chunk.length;
+
+				// Append pause if not the last sentence
+				if (i < sentences.length - 1) {
+					audioChunks.push(pauseBuffer);
+					totalSamples += pauseSamples;
+				}
+			}
+		}
+
+		// Concatenate all chunks into a single Float32Array
+		const fullAudio = new Float32Array(totalSamples);
+		let offset = 0;
+		for (const chunk of audioChunks) {
+			fullAudio.set(chunk, offset);
+			offset += chunk.length;
+		}
+
+		return fullAudio;
+	}
+
+	/**
 	 * Gets synthesized audio for a sentence from cache or triggers synthesis.
 	 */
 	private getSentenceAudioPromise(sentenceIndex: number): Promise<SentenceAudioItem> {

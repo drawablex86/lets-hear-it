@@ -6,6 +6,7 @@ export interface LetsHearItSettings {
 	playbackSpeed: number;
 	hearingModeOnPlay: boolean;
 	autoScroll: boolean;
+	exportFolder: string;
 }
 
 export const DEFAULT_SETTINGS: LetsHearItSettings = {
@@ -13,6 +14,7 @@ export const DEFAULT_SETTINGS: LetsHearItSettings = {
 	playbackSpeed: 1.0,
 	hearingModeOnPlay: true,
 	autoScroll: true,
+	exportFolder: "",
 };
 
 export interface VoiceOption {
@@ -132,6 +134,19 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 					this.plugin.getHighlighter()?.setAutoScroll(val);
 				});
+			});
+
+		// Audio Export Folder Setting
+		new Setting(containerEl)
+			.setName("Audio export folder")
+			.setDesc("The vault folder path where generated MP3 files will be saved. Leave empty to save directly to the root of the vault.")
+			.addText((text) => {
+				text.setPlaceholder("e.g. Audio/Recordings (leave blank for vault root)")
+					.setValue(this.plugin.settings.exportFolder)
+					.onChange(async (val) => {
+						this.plugin.settings.exportFolder = val.trim();
+						await this.plugin.saveSettings();
+					});
 			});
 	}
 }
