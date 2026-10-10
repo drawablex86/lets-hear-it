@@ -11,7 +11,7 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = process.argv[2] === "production";
 
-// Helper plugin to copy onnxruntime-web WASM binaries to output directory
+// Helper plugin to copy onnxruntime-web WASM binaries to output directory and v0 folder
 const copyWasmPlugin = {
 	name: "copy-wasm-plugin",
 	setup(build) {
@@ -20,17 +20,35 @@ const copyWasmPlugin = {
 				const ortDistPath = path.resolve("node_modules/onnxruntime-web/dist");
 				if (fs.existsSync(ortDistPath)) {
 					const files = fs.readdirSync(ortDistPath);
+					const targets = [path.resolve("."), path.resolve("v0")];
+					for (const targetDir of targets) {
+						if (!fs.existsSync(targetDir)) {
+							fs.mkdirSync(targetDir, { recursive: true });
+						}
+					}
+
 					for (const file of files) {
 						if (file.endsWith(".wasm")) {
 							const src = path.join(ortDistPath, file);
-							const dest = path.resolve(file);
-							fs.copyFileSync(src, dest);
+							for (const targetDir of targets) {
+								fs.copyFileSync(src, path.join(targetDir, file));
+							}
 						}
 					}
 					console.log("[copy-wasm-plugin] onnxruntime-web .wasm files copied successfully.");
 				}
+
+				// Also sync main.js, manifest.json, styles.css to v0
+				const v0Dir = path.resolve("v0");
+				if (fs.existsSync(v0Dir)) {
+					for (const syncFile of ["main.js", "manifest.json", "styles.css"]) {
+						if (fs.existsSync(path.resolve(syncFile))) {
+							fs.copyFileSync(path.resolve(syncFile), path.join(v0Dir, syncFile));
+						}
+					}
+				}
 			} catch (err) {
-				console.warn("[copy-wasm-plugin] Warning copying wasm files:", err);
+				console.warn("[copy-wasm-plugin] Warning copying files:", err);
 			}
 		});
 	},
@@ -42,6 +60,9 @@ const context = await esbuild.context({
 	},
 	entryPoints: ["src/main.ts"],
 	bundle: true,
+	define: {
+		"process.release.name": '"browser"',
+	},
 	external: [
 		"obsidian",
 		"electron",

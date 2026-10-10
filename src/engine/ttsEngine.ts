@@ -156,14 +156,33 @@ export class TTSEngine {
 					device,
 					progress_callback: progressCallback,
 				});
-			} catch (gpuError) {
-				console.warn(`[let's hear it] Failed to initialize with ${device}, falling back to wasm:`, gpuError);
-				device = "wasm";
-				this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-					dtype,
-					device: "wasm",
-					progress_callback: progressCallback,
-				});
+			} catch (firstError) {
+				console.warn(`[let's hear it] Failed to initialize with ${device}:`, firstError);
+				if (device === "webgpu") {
+					device = "wasm";
+					try {
+						console.log(`[let's hear it] Retrying with device: wasm`);
+						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
+							dtype,
+							device: "wasm",
+							progress_callback: progressCallback,
+						});
+					} catch (wasmError) {
+						console.warn(`[let's hear it] Failed to initialize with wasm, falling back to cpu:`, wasmError);
+						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
+							dtype,
+							device: "cpu",
+							progress_callback: progressCallback,
+						});
+					}
+				} else {
+					console.log(`[let's hear it] Falling back to cpu`);
+					this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
+						dtype,
+						device: "cpu",
+						progress_callback: progressCallback,
+					});
+				}
 			}
 
 			if (downloadNotice) {
