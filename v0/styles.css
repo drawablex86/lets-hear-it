@@ -98,8 +98,9 @@
 	height: 16px;
 }
 
-/* Speed Selector */
-.lets-hear-it-speed-select {
+/* Speed & Voice Selectors */
+.lets-hear-it-speed-select,
+.lets-hear-it-voice-select {
 	background: var(--background-secondary);
 	color: var(--text-muted);
 	border: 1px solid var(--background-modifier-border);
@@ -112,9 +113,14 @@
 	transition: border-color 0.15s ease, color 0.15s ease;
 }
 
-.lets-hear-it-speed-select:hover {
+.lets-hear-it-speed-select:hover,
+.lets-hear-it-voice-select:hover {
 	color: var(--text-normal);
 	border-color: var(--interactive-accent);
+}
+
+.lets-hear-it-voice-select {
+	max-width: 140px;
 }
 
 /* Close / Dismiss Button */

@@ -1,4 +1,8 @@
 node_modules/
 main.js
 *.wasm
+ort*.mjs
+ort.*.mjs
+*.wav
+voices/
 .DS_Store

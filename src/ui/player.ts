@@ -5,6 +5,7 @@ export interface FloatingPlayerOptions {
 	ttsEngine: TTSEngine;
 	onClose?: () => void;
 	onVoiceChange?: (voice: string) => void;
+	onPlay?: () => void;
 }
 
 export class FloatingPlayer {
@@ -20,11 +21,13 @@ export class FloatingPlayer {
 	private ttsEngine: TTSEngine;
 	private onClose?: () => void;
 	private onVoiceChange?: (voice: string) => void;
+	private onPlay?: () => void;
 
 	constructor(options: FloatingPlayerOptions) {
 		this.ttsEngine = options.ttsEngine;
 		this.onClose = options.onClose;
 		this.onVoiceChange = options.onVoiceChange;
+		this.onPlay = options.onPlay;
 	}
 
 	/**
@@ -86,6 +89,10 @@ export class FloatingPlayer {
 				this.ttsEngine.pause();
 			} else if (state === "paused") {
 				this.ttsEngine.resume();
+			} else {
+				if (this.onPlay) {
+					this.onPlay();
+				}
 			}
 		});
 		this.playPauseBtn = playPauseBtn;

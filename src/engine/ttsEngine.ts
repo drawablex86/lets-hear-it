@@ -142,26 +142,29 @@ export class TTSEngine {
 					const wasmBlobUrl = URL.createObjectURL(wasmBlob);
 
 					// Provide raw Uint8Array directly into memory
-					if (ort && ort.env && ort.env.wasm) {
-						ort.env.wasm.wasmBinary = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
-						ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
+					if (ort && ort.env) {
+						ort.env.logLevel = "error";
+						if (ort.env.wasm) {
+							ort.env.wasm.wasmBinary = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
+							ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
 
-						if (fs.existsSync(mjsFile)) {
-							const mjsBuf = fs.readFileSync(mjsFile);
-							const mjsBase64 = Buffer.from(mjsBuf).toString("base64");
-							const mjsDataUrl = `data:text/javascript;base64,${mjsBase64}`;
+							if (fs.existsSync(mjsFile)) {
+								const mjsBuf = fs.readFileSync(mjsFile);
+								const mjsBase64 = Buffer.from(mjsBuf).toString("base64");
+								const mjsDataUrl = `data:text/javascript;base64,${mjsBase64}`;
 
-							ort.env.wasm.wasmPaths = {
-								mjs: mjsDataUrl,
-								wasm: wasmBlobUrl,
-							};
-						} else {
-							ort.env.wasm.wasmPaths = { wasm: wasmBlobUrl };
+								ort.env.wasm.wasmPaths = {
+									mjs: mjsDataUrl,
+									wasm: wasmBlobUrl,
+								};
+							} else {
+								ort.env.wasm.wasmPaths = { wasm: wasmBlobUrl };
+							}
 						}
 					}
 
 					if (kokoroEnv) {
-						kokoroEnv.wasmPaths = (ort.env.wasm.wasmPaths as any);
+						kokoroEnv.wasmPaths = (ort?.env?.wasm?.wasmPaths as any);
 					}
 					console.log("[let's hear it] Successfully configured in-memory wasmBinary and Data URLs!");
 					return;
@@ -222,7 +225,9 @@ export class TTSEngine {
 			};
 
 			const modelId = "onnx-community/Kokoro-82M-v1.0-ONNX";
-			const dtype = "q4f16";
+			// Use fp32 for uncompressed natural audio fidelity (Kokoro-82M is lightweight ~300MB)
+			// falling back to q8 if needed.
+			const dtype = "fp32";
 
 			// Try WebGPU first if supported, then fall back to WASM
 			let device: "webgpu" | "wasm" = "wasm";
@@ -238,16 +243,30 @@ export class TTSEngine {
 					progress_callback: progressCallback,
 				});
 			} catch (firstError) {
-				console.warn(`[let's hear it] Failed to initialize with ${device}:`, firstError);
+				console.warn(`[let's hear it] Failed to initialize with ${device} (${dtype}):`, firstError);
 				if (device === "webgpu") {
-					console.log(`[let's hear it] Retrying with device: wasm`);
+					console.log(`[let's hear it] Retrying with device: wasm, dtype: ${dtype}`);
+					try {
+						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
+							dtype,
+							device: "wasm",
+							progress_callback: progressCallback,
+						});
+					} catch (secondError) {
+						console.log(`[let's hear it] Retrying with device: wasm, dtype: q8`);
+						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
+							dtype: "q8" as any,
+							device: "wasm",
+							progress_callback: progressCallback,
+						});
+					}
+				} else {
+					console.log(`[let's hear it] Retrying with device: wasm, dtype: q8`);
 					this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-						dtype,
+						dtype: "q8" as any,
 						device: "wasm",
 						progress_callback: progressCallback,
 					});
-				} else {
-					throw firstError;
 				}
 			}
 

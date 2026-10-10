@@ -138,13 +138,9 @@ export default class LetsHearItPlugin extends Plugin {
 	public async ensureAudioContext(): Promise<AudioContext> {
 		if (!this.audioContext || this.audioContext.state === "closed") {
 			const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-			// Kokoro outputs 24kHz single-channel audio. Specifying sampleRate: 24000 prevents
-			// hardware resampler distortion and ensures natural, clear human voice playback.
-			try {
-				this.audioContext = new AudioContextClass({ sampleRate: 24000 });
-			} catch (e) {
-				this.audioContext = new AudioContextClass();
-			}
+			// Use default system hardware sample rate. WebAudio's AudioBufferSourceNode
+			// cleanly upsamples Kokoro's 24kHz audio without CoreAudio hardware distortion or crackling.
+			this.audioContext = new AudioContextClass();
 		}
 		if (this.audioContext.state === "suspended") {
 			await this.audioContext.resume();
@@ -188,6 +184,9 @@ export default class LetsHearItPlugin extends Plugin {
 				onVoiceChange: async (voice: string) => {
 					this.settings.voice = voice;
 					await this.saveSettings();
+				},
+				onPlay: async () => {
+					await this.readCurrentNote();
 				},
 			});
 		}
