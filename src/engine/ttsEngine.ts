@@ -312,8 +312,41 @@ export class TTSEngine {
 	}
 
 	/**
+	/**
+	 * Groups individual sentences into optimal multi-sentence speech chunks
+	 * (up to ~380 characters) to drastically accelerate Kokoro TTS synthesis.
+	 */
+	public static groupSentencesIntoSpeechChunks(sentences: string[], maxChars = 380): string[] {
+		const chunks: string[] = [];
+		let currentChunk: string[] = [];
+		let currentLength = 0;
+
+		for (const sentence of sentences) {
+			const trimmed = sentence.trim();
+			if (!trimmed) continue;
+
+			// If current chunk has sentences and adding this sentence exceeds budget, start a new chunk
+			if (currentChunk.length > 0 && currentLength + trimmed.length + 1 > maxChars) {
+				chunks.push(currentChunk.join(" "));
+				currentChunk = [trimmed];
+				currentLength = trimmed.length;
+			} else {
+				currentChunk.push(trimmed);
+				currentLength += (currentChunk.length === 1 ? 0 : 1) + trimmed.length;
+			}
+		}
+
+		if (currentChunk.length > 0) {
+			chunks.push(currentChunk.join(" "));
+		}
+
+		return chunks;
+	}
+
+	/**
 	 * Synthesizes a list of sentences into a single continuous Float32Array (24kHz mono)
-	 * suitable for offline file saving (e.g. MP3 encoding).
+	 * suitable for offline file saving (e.g. MP3 encoding), using optimal multi-sentence
+	 * speech batches to reduce model forward-passes by up to 75%.
 	 */
 	public async generateFullAudio(
 		sentences: string[],
@@ -322,31 +355,38 @@ export class TTSEngine {
 	): Promise<Float32Array> {
 		const model = await this.initModel();
 		const sampleRate = 24000;
-		// Insert 250ms of silence between sentences for natural pacing
-		const pauseSamples = Math.floor(sampleRate * 0.25);
+		// 300ms natural silence pause between paragraph speech batches
+		const pauseSamples = Math.floor(sampleRate * 0.3);
 		const pauseBuffer = new Float32Array(pauseSamples);
+
+		// Group sentences into speech batches under Kokoro's optimal token window
+		const speechChunks = TTSEngine.groupSentencesIntoSpeechChunks(sentences, 380);
 
 		const audioChunks: Float32Array[] = [];
 		let totalSamples = 0;
 
-		for (let i = 0; i < sentences.length; i++) {
-			const sentence = sentences[i];
+		for (let i = 0; i < speechChunks.length; i++) {
+			const chunkText = speechChunks[i];
 			if (onProgress) {
-				onProgress(i + 1, sentences.length, `Synthesizing sentence ${i + 1} of ${sentences.length}...`);
+				onProgress(
+					i + 1,
+					speechChunks.length,
+					`Synthesizing speech batch ${i + 1} of ${speechChunks.length}...`
+				);
 			}
 
-			const rawAudio = await model.generate(sentence, {
+			const rawAudio = await model.generate(chunkText, {
 				voice: voice as any,
 				speed: 1.0,
 			});
 
-			const chunk = rawAudio.audio; // Float32Array
-			if (chunk && chunk.length > 0) {
-				audioChunks.push(chunk);
-				totalSamples += chunk.length;
+			const audioData = rawAudio.audio; // Float32Array
+			if (audioData && audioData.length > 0) {
+				audioChunks.push(audioData);
+				totalSamples += audioData.length;
 
-				// Append pause if not the last sentence
-				if (i < sentences.length - 1) {
+				// Append paragraph pause if not the last chunk
+				if (i < speechChunks.length - 1) {
 					audioChunks.push(pauseBuffer);
 					totalSamples += pauseSamples;
 				}

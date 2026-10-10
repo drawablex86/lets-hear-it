@@ -3,6 +3,7 @@ import { KOKORO_VOICES } from "../settings";
 import type LetsHearItPlugin from "../main";
 import { cleanMarkdownForSpeech } from "../engine/cleaner";
 import { encodeFloat32ToMp3 } from "../engine/mp3Encoder";
+import { TTSEngine } from "../engine/ttsEngine";
 
 export class ExportMp3Modal extends Modal {
 	private plugin: LetsHearItPlugin;
@@ -41,9 +42,10 @@ export class ExportMp3Modal extends Modal {
 			cls: "lets-hear-it-modal-filename",
 			text: `📄 Note: ${this.targetFile.basename}`,
 		});
+		const speechBatches = TTSEngine.groupSentencesIntoSpeechChunks(this.sentences, 380);
 		noteSummary.createEl("div", {
 			cls: "lets-hear-it-modal-sentence-count",
-			text: `Found ${this.sentences.length} speakable sentences`,
+			text: `Found ${this.sentences.length} sentences (optimized into ${speechBatches.length} speech batches for fast generation)`,
 		});
 
 		// Destination preview
