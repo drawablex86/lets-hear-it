@@ -160,22 +160,31 @@ const copyWasmPlugin = {
 					}
 				}
 
-				// Automatically sync to live vault if present
+				// Optionally sync to live vault if OBSIDIAN_VAULT_PATH is specified or local directory exists
+				const customVaultPath = process.env.OBSIDIAN_VAULT_PATH;
 				const vaultPluginPaths = [
+					customVaultPath,
 					"/Users/rahulrajeev/Downloads/lattice field/.obsidian/plugins/v0",
 					"/Users/rahulrajeev/Downloads/lattice field/.obsidian/plugins/lets-hear-it"
-				];
+				].filter(Boolean);
+
 				for (const vaultDir of vaultPluginPaths) {
-					if (fs.existsSync(vaultDir)) {
-						const v0Files = fs.readdirSync(v0Dir);
-						for (const f of v0Files) {
-							fs.copyFileSync(path.join(v0Dir, f), path.join(vaultDir, f));
+					try {
+						if (fs.existsSync(vaultDir)) {
+							const v0Files = fs.readdirSync(v0Dir);
+							for (const f of v0Files) {
+								try {
+									fs.copyFileSync(path.join(v0Dir, f), path.join(vaultDir, f));
+								} catch (copyErr) {
+									// Silently skip if file is locked by running Obsidian process or isolated sandbox
+								}
+							}
+							console.log(`[copy-wasm-plugin] Synced files to live vault: ${vaultDir}`);
 						}
-						console.log(`[copy-wasm-plugin] Synced all files to live vault: ${vaultDir}`);
-					}
+					} catch (_) {}
 				}
 			} catch (err) {
-				console.warn("[copy-wasm-plugin] Warning copying files:", err);
+				console.warn("[copy-wasm-plugin] Note:", err?.message || err);
 			}
 		});
 	},

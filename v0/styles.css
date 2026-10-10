@@ -147,9 +147,16 @@
 	height: 14px;
 }
 
-/* Word Highlighter via CSS Custom Highlight API */
+/* Word Highlighter via CSS Custom Highlight API & Fallback */
 ::highlight(lets-hear-it-active-word) {
 	background-color: var(--text-highlight-bg, #ffd54f);
 	color: var(--text-normal);
 	border-radius: 2px;
 }
+
+.lets-hear-it-active-word {
+	background-color: var(--text-highlight-bg, #ffd54f) !important;
+	color: var(--text-normal) !important;
+	border-radius: 2px;
+}
+
