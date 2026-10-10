@@ -5,8 +5,26 @@ f.jsepInit=(a,b)=>{if("webgpu"===a){[f.hd,f.Dd,f.Hd,f.jd,f.Gd,f.bc,f.Id,f.Kd,f.E
 f.Ud,f.webnnEnableTraceEvent]=b.slice(1);f.webnnReleaseTensorId=f.vd;f.webnnUploadTensor=f.wd;f.webnnRegisterMLContext=f.Ud;f.webnnOnRunStart=c=>d.onRunStart(c);f.webnnOnRunEnd=d.onRunEnd.bind(d);f.webnnOnReleaseSession=c=>{d.onReleaseSession(c)};f.webnnCreateMLTensorDownloader=(c,e)=>d.createMLTensorDownloader(c,e);f.webnnRegisterMLTensor=(c,e,g,k)=>d.registerMLTensor(c,e,g,k);f.webnnCreateMLContext=c=>d.createMLContext(c);f.webnnRegisterGraphInput=d.registerGraphInput.bind(d);f.webnnIsGraphInput=
 d.isGraphInput.bind(d);f.webnnRegisterGraphOutput=d.registerGraphOutput.bind(d);f.webnnIsGraphOutput=d.isGraphOutput.bind(d);f.webnnCreateTemporaryTensor=d.createTemporaryTensor.bind(d);f.webnnIsGraphInputOutputTypeSupported=d.isGraphInputOutputTypeSupported.bind(d)}};
 let fa=()=>{const a=b=>(...d)=>{const c=q;d=b(...d);return q!=c?ea():d};(b=>{for(const d of b)f[d]=a(f[d])})(["_OrtAppendExecutionProvider","_OrtCreateSession","_OrtRun","_OrtRunWithBinding","_OrtBindInput"]);"undefined"!==typeof da&&(f._OrtRun=da(f._OrtRun),f._OrtRunWithBinding=da(f._OrtRunWithBinding));fa=void 0};f.asyncInit=()=>{fa?.()};var ha="./this.program",ia=(a,b)=>{throw b;},ja=import.meta.url,ka="",la,ma;
-if(h){var fs=require("fs");ja.startsWith("file:")&&(ka=require("path").dirname(require("url").fileURLToPath(ja))+"/");ma=a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a)};la=async a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a,void 0)};1<process.argv.length&&(ha=process.argv[1].replace(/\\/g,"/"));process.argv.slice(2);ia=(a,b)=>{process.exitCode=a;throw b;}}else if(aa||ba){try{ka=(new URL(".",ja)).href}catch{}h||(ba&&(ma=a=>{var b=new XMLHttpRequest;b.open("GET",a,!1);b.responseType="arraybuffer";
-b.send(null);return new Uint8Array(b.response)}),la=async a=>{if(na(a))return new Promise((d,c)=>{var e=new XMLHttpRequest;e.open("GET",a,!0);e.responseType="arraybuffer";e.onload=()=>{200==e.status||0==e.status&&e.response?d(e.response):c(e.status)};e.onerror=c;e.send(null)});if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+if(h){var fs=require("fs");ja.startsWith("file:")&&(ka=require("path").dirname(require("url").fileURLToPath(ja))+"/");ma=a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a)};la=async a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a,void 0)};1<process.argv.length&&(ha=process.argv[1].replace(/\\/g,"/"));process.argv.slice(2);ia=(a,b)=>{process.exitCode=a;throw b;}}else if(aa||ba){try{ka=(new URL(".",ja)).href}catch{}h||(ma = a => {
+								if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+									const fs = require("fs");
+									const p = decodeURIComponent(a.replace(/^file:\/\//, ""));
+									if (fs.existsSync(p)) {
+										const buf = fs.readFileSync(p);
+										return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+									}
+								}
+								if (ba) {
+									var b = new XMLHttpRequest; b.open("GET", a, false); b.responseType = "arraybuffer"; b.send(null); return new Uint8Array(b.response);
+								}
+							},la=async a=>{if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+								const fs = require("fs");
+								const p = decodeURIComponent(a.replace(/^file:\/\//, ""));
+								if (fs.existsSync(p)) {
+									const buf = fs.readFileSync(p);
+									return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+								}
+							}if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
 								const fs = require("fs");
 								const p = decodeURIComponent(a.replace(/^file:\/\//, ""));
 								if (fs.existsSync(p)) {

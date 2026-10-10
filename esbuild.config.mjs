@@ -54,6 +54,34 @@ const copyWasmPlugin = {
 							if (b.ok) return b.arrayBuffer();`;
 							content = content.replace(wasmFetchPattern, wasmFsReplacement);
 
+							// 3. Patch Emscripten's async la(a) and sync ma(a) file loaders that trigger blocked XMLHttpRequest on file:// URIs
+							const xhrAsyncPattern = /if\(na\(a\)\)return new Promise\(\(d,c\)=>\{var e=new XMLHttpRequest;e\.open\("GET",a,!0\);e\.responseType="arraybuffer";e\.onload=\(\)=>\{200==e\.status\|\|0==e\.status&&e\.response\?d\(e\.response\):c\(e\.status\)\};e\.onerror=c;e\.send\(null\)\}\);/g;
+							const fsAsyncReplacement = `if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+								const fs = require("fs");
+								const p = decodeURIComponent(a.replace(/^file:\\/\\//, ""));
+								if (fs.existsSync(p)) {
+									const buf = fs.readFileSync(p);
+									return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+								}
+							}`;
+							content = content.replace(xhrAsyncPattern, fsAsyncReplacement);
+
+							const xhrSyncPattern = /ba&&\(ma=a=>\{var b=new XMLHttpRequest;b\.open\("GET",a,!1\);b\.responseType="arraybuffer";\s*b\.send\(null\);return new Uint8Array\(b\.response\)\}\)/g;
+							const fsSyncReplacement = `ma = a => {
+								if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+									const fs = require("fs");
+									const p = decodeURIComponent(a.replace(/^file:\\/\\//, ""));
+									if (fs.existsSync(p)) {
+										const buf = fs.readFileSync(p);
+										return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+									}
+								}
+								if (ba) {
+									var b = new XMLHttpRequest; b.open("GET", a, false); b.responseType = "arraybuffer"; b.send(null); return new Uint8Array(b.response);
+								}
+							}`;
+							content = content.replace(xhrSyncPattern, fsSyncReplacement);
+
 							for (const targetDir of targets) {
 								fs.writeFileSync(path.join(targetDir, file), content, "utf8");
 							}
@@ -95,6 +123,21 @@ const copyWasmPlugin = {
 						if (fs.existsSync(path.resolve(syncFile))) {
 							fs.copyFileSync(path.resolve(syncFile), path.join(v0Dir, syncFile));
 						}
+					}
+				}
+
+				// Automatically sync to live vault if present
+				const vaultPluginPaths = [
+					"/Users/rahulrajeev/Downloads/lattice field/.obsidian/plugins/v0",
+					"/Users/rahulrajeev/Downloads/lattice field/.obsidian/plugins/lets-hear-it"
+				];
+				for (const vaultDir of vaultPluginPaths) {
+					if (fs.existsSync(vaultDir)) {
+						const v0Files = fs.readdirSync(v0Dir);
+						for (const f of v0Files) {
+							fs.copyFileSync(path.join(v0Dir, f), path.join(vaultDir, f));
+						}
+						console.log(`[copy-wasm-plugin] Synced all files to live vault: ${vaultDir}`);
 					}
 				}
 			} catch (err) {
