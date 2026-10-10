@@ -111,16 +111,25 @@ const copyWasmPlugin = {
 				const mainJsPath = path.resolve("main.js");
 				if (fs.existsSync(mainJsPath)) {
 					let mainJs = fs.readFileSync(mainJsPath, "utf8");
-					// Replace (await import(r)).default with safe Blob URL dynamic importer
+					// Replace (await import(r)).default with safe Data URL dynamic importer
 					const search = `(await import(r)).default`;
 					const replacement = `(await (async (specifier) => {
-						if (typeof require === "function" && typeof specifier === "string" && specifier.startsWith("file://")) {
-							const fs = require("fs");
-							const filePath = decodeURIComponent(specifier.replace(/^file:\\/\\//, ""));
-							if (fs.existsSync(filePath)) {
-								const fileContent = fs.readFileSync(filePath, "utf8");
-								const blob = new Blob([fileContent], { type: "text/javascript" });
-								return import(URL.createObjectURL(blob));
+						if (typeof require === "function" && typeof specifier === "string") {
+							if (specifier.startsWith("file://")) {
+								const fs = require("fs");
+								const filePath = decodeURIComponent(specifier.replace(/^file:\\/\\//, ""));
+								if (fs.existsSync(filePath)) {
+									const fileContent = fs.readFileSync(filePath);
+									const base64 = Buffer.from(fileContent).toString("base64");
+									return import(\`data:text/javascript;base64,\${base64}\`);
+								}
+							} else if (specifier.startsWith("blob:")) {
+								try {
+									const resp = await fetch(specifier);
+									const buf = await resp.arrayBuffer();
+									const base64 = Buffer.from(buf).toString("base64");
+									return import(\`data:text/javascript;base64,\${base64}\`);
+								} catch (e) {}
 							}
 						}
 						return import(specifier);
@@ -128,9 +137,17 @@ const copyWasmPlugin = {
 
 					if (mainJs.includes(search)) {
 						mainJs = mainJs.replaceAll(search, replacement);
-						fs.writeFileSync(mainJsPath, mainJs, "utf8");
-						console.log("[copy-wasm-plugin] main.js dynamic import successfully patched with Blob URL loader.");
+						console.log("[copy-wasm-plugin] main.js dynamic import successfully patched with Data URL loader.");
 					}
+
+					// Neutralize CDN wasmPaths override that breaks Electron ESM loader
+					const cdnSearch = `!x.wasm.wasmPaths&&(x.wasm.wasmPaths=\`https://cdn.jsdelivr.net/npm/@huggingface/transformers@\${c.env.version}/dist/\`)`;
+					if (mainJs.includes(cdnSearch)) {
+						mainJs = mainJs.replace(cdnSearch, `true`);
+						console.log("[copy-wasm-plugin] Neutralized transformers CDN wasmPaths override.");
+					}
+
+					fs.writeFileSync(mainJsPath, mainJs, "utf8");
 				}
 
 				// Also sync main.js, manifest.json, styles.css to v0

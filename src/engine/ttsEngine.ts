@@ -88,10 +88,61 @@ export class TTSEngine {
 	}
 
 	/**
-	 * Configures ONNX Runtime WASM paths for Obsidian Electron environment
+	 * Configures ONNX Runtime WASM paths using in-memory Blob URLs and wasmBinary
+	 * completely eliminating Chromium 'file://' origin security restrictions!
 	 */
 	public static configureWasmPaths(basePluginPath: string) {
 		try {
+			// Extract native directory path from file:// or absolute path
+			let rawDir = basePluginPath;
+			if (rawDir.startsWith("file://")) {
+				rawDir = decodeURIComponent(rawDir.replace(/^file:\/\//, ""));
+			}
+			if (rawDir.endsWith("/")) {
+				rawDir = rawDir.slice(0, -1);
+			}
+
+			const req = (globalThis as any).require || (window as any).require;
+			if (req) {
+				const fs = req("fs");
+				const path = req("path");
+
+				const wasmFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.wasm");
+				const mjsFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.mjs");
+
+				if (fs.existsSync(wasmFile)) {
+					const wasmBuf = fs.readFileSync(wasmFile);
+					const wasmBlob = new Blob([wasmBuf], { type: "application/wasm" });
+					const wasmBlobUrl = URL.createObjectURL(wasmBlob);
+
+					// Provide raw Uint8Array directly into memory
+					if (ort && ort.env && ort.env.wasm) {
+						ort.env.wasm.wasmBinary = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
+						ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
+
+						if (fs.existsSync(mjsFile)) {
+							const mjsBuf = fs.readFileSync(mjsFile);
+							const mjsBase64 = Buffer.from(mjsBuf).toString("base64");
+							const mjsDataUrl = `data:text/javascript;base64,${mjsBase64}`;
+
+							ort.env.wasm.wasmPaths = {
+								mjs: mjsDataUrl,
+								wasm: wasmBlobUrl,
+							};
+						} else {
+							ort.env.wasm.wasmPaths = { wasm: wasmBlobUrl };
+						}
+					}
+
+					if (kokoroEnv) {
+						kokoroEnv.wasmPaths = (ort.env.wasm.wasmPaths as any);
+					}
+					console.log("[let's hear it] Successfully configured in-memory wasmBinary and Data URLs!");
+					return;
+				}
+			}
+
+			// Fallback if fs not available
 			const formattedPath = basePluginPath.endsWith("/") ? basePluginPath : `${basePluginPath}/`;
 			if (ort && ort.env && ort.env.wasm) {
 				ort.env.wasm.wasmPaths = formattedPath;

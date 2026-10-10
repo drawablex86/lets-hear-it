@@ -18,6 +18,12 @@ export default class LetsHearItPlugin extends Plugin {
 			process.type = "renderer";
 		}
 
+		// Expose require globally so any module or blob can use Node fs
+		if (typeof window !== "undefined" && typeof require !== "undefined") {
+			(window as any).require = require;
+			(globalThis as any).require = require;
+		}
+
 		// 1. Configure ONNX WASM asset directory path for Electron sandbox
 		this.configureWasmDirectory();
 
@@ -93,11 +99,23 @@ export default class LetsHearItPlugin extends Plugin {
 	 */
 	private configureWasmDirectory() {
 		try {
-			const adapter = this.app.vault.adapter;
-			if (adapter instanceof FileSystemAdapter) {
-				const basePath = adapter.getBasePath();
-				const pluginDir = `${basePath}/${this.manifest.dir}`;
-				// Ensure trailing slash and format as file:// URL for Chromium fetch/import
+			const adapter = this.app?.vault?.adapter as any;
+			let basePath = "";
+			if (adapter && typeof adapter.getBasePath === "function") {
+				basePath = adapter.getBasePath();
+			} else if (typeof process !== "undefined" && typeof process.cwd === "function") {
+				basePath = process.cwd();
+			}
+
+			if (basePath) {
+				let pluginDir = basePath;
+				if (this.manifest?.dir) {
+					if (this.manifest.dir.startsWith("/")) {
+						pluginDir = this.manifest.dir;
+					} else {
+						pluginDir = `${basePath.replace(/\/+$/, "")}/${this.manifest.dir.replace(/^\/+/, "")}`;
+					}
+				}
 				const fileUrl = pluginDir.startsWith("/") ? `file://${pluginDir}/` : `file:///${pluginDir}/`;
 				TTSEngine.configureWasmPaths(fileUrl);
 			}
