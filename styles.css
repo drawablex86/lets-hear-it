@@ -1,0 +1,149 @@
+/* ==========================================================================
+   let's hear it - Obsidian Plugin Styles
+   ========================================================================== */
+
+/* Floating Player Bar Docked at Bottom-Right */
+.lets-hear-it-player {
+	position: fixed;
+	bottom: 24px;
+	right: 24px;
+	z-index: 1000;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 16px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 9999px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22), 0 2px 6px rgba(0, 0, 0, 0.12);
+	backdrop-filter: blur(12px);
+	font-family: var(--font-interface);
+	font-size: 13px;
+	color: var(--text-normal);
+	user-select: none;
+	transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.lets-hear-it-player.is-hidden {
+	display: none;
+}
+
+/* Status Indicator Container */
+.lets-hear-it-player-info {
+	display: flex;
+	flex-direction: column;
+	max-width: 190px;
+	overflow: hidden;
+}
+
+.lets-hear-it-player-status {
+	font-weight: 500;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	color: var(--text-normal);
+}
+
+.lets-hear-it-player-subtext {
+	font-size: 11px;
+	color: var(--text-muted);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	overflow: hidden;
+}
+
+/* Controls Group */
+.lets-hear-it-player-controls {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+/* Control Buttons */
+.lets-hear-it-btn {
+	background: var(--interactive-normal);
+	color: var(--text-normal);
+	border: none;
+	border-radius: 50%;
+	width: 32px;
+	height: 32px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	padding: 0;
+	transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.lets-hear-it-btn:hover {
+	background: var(--interactive-hover);
+	transform: scale(1.05);
+}
+
+.lets-hear-it-btn:active {
+	transform: scale(0.96);
+}
+
+.lets-hear-it-btn-primary {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.lets-hear-it-btn-primary:hover {
+	background: var(--interactive-accent-hover);
+}
+
+.lets-hear-it-btn svg {
+	width: 16px;
+	height: 16px;
+}
+
+/* Speed Selector */
+.lets-hear-it-speed-select {
+	background: var(--background-secondary);
+	color: var(--text-muted);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 12px;
+	padding: 4px 8px;
+	font-size: 12px;
+	font-weight: 500;
+	cursor: pointer;
+	outline: none;
+	transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.lets-hear-it-speed-select:hover {
+	color: var(--text-normal);
+	border-color: var(--interactive-accent);
+}
+
+/* Close / Dismiss Button */
+.lets-hear-it-btn-close {
+	background: transparent;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 4px;
+	margin-left: 2px;
+	border-radius: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: color 0.15s ease;
+}
+
+.lets-hear-it-btn-close:hover {
+	color: var(--text-normal);
+}
+
+.lets-hear-it-btn-close svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* Word Highlighter via CSS Custom Highlight API */
+::highlight(lets-hear-it-active-word) {
+	background-color: var(--text-highlight-bg, #ffd54f);
+	color: var(--text-normal);
+	border-radius: 2px;
+}
