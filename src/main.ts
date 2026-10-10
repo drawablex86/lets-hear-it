@@ -4,8 +4,10 @@ import { TTSEngine, TTSState } from "./engine/ttsEngine";
 import { cleanMarkdownForSpeech, SentenceChunk } from "./engine/cleaner";
 import { FloatingPlayer } from "./ui/player";
 import { WordHighlighter } from "./ui/highlighter";
+import { LetsHearItSettings, DEFAULT_SETTINGS, LetsHearItSettingTab } from "./settings";
 
 export default class LetsHearItPlugin extends Plugin {
+	public settings: LetsHearItSettings = DEFAULT_SETTINGS;
 	private audioContext: AudioContext | null = null;
 	private ttsEngine: TTSEngine | null = null;
 	private player: FloatingPlayer | null = null;
@@ -13,6 +15,9 @@ export default class LetsHearItPlugin extends Plugin {
 	private currentSentences: SentenceChunk[] = [];
 
 	async onload() {
+		// Load plugin settings
+		await this.loadSettings();
+
 		// Ensure Electron renderer flag is set so onnxruntime doesn't treat context as Node CLI
 		if (typeof process !== "undefined" && !process.type) {
 			process.type = "renderer";
@@ -30,10 +35,13 @@ export default class LetsHearItPlugin extends Plugin {
 		// 2. Register custom ear icon
 		addIcon(EAR_ICON_ID, EAR_ICON_SVG);
 
-		// 3. Initialize components
+		// 3. Register Settings Tab
+		this.addSettingTab(new LetsHearItSettingTab(this.app, this));
+
+		// 4. Initialize components
 		this.highlighter = new WordHighlighter();
 
-		// 4. Add ribbon icon to left sidebar with autoplay-safe resume
+		// 5. Add ribbon icon to left sidebar with autoplay-safe resume
 		this.addRibbonIcon(
 			EAR_ICON_ID,
 			"let's hear it",
@@ -130,7 +138,13 @@ export default class LetsHearItPlugin extends Plugin {
 	public async ensureAudioContext(): Promise<AudioContext> {
 		if (!this.audioContext || this.audioContext.state === "closed") {
 			const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-			this.audioContext = new AudioContextClass();
+			// Kokoro outputs 24kHz single-channel audio. Specifying sampleRate: 24000 prevents
+			// hardware resampler distortion and ensures natural, clear human voice playback.
+			try {
+				this.audioContext = new AudioContextClass({ sampleRate: 24000 });
+			} catch (e) {
+				this.audioContext = new AudioContextClass();
+			}
 		}
 		if (this.audioContext.state === "suspended") {
 			await this.audioContext.resume();
@@ -161,6 +175,8 @@ export default class LetsHearItPlugin extends Plugin {
 					this.highlighter?.clearHighlight();
 				},
 			});
+			this.ttsEngine.setVoice(this.settings.voice);
+			this.ttsEngine.setPlaybackRate(this.settings.playbackSpeed);
 		}
 
 		if (!this.player) {
@@ -168,6 +184,10 @@ export default class LetsHearItPlugin extends Plugin {
 				ttsEngine: this.ttsEngine,
 				onClose: () => {
 					this.highlighter?.clearHighlight();
+				},
+				onVoiceChange: async (voice: string) => {
+					this.settings.voice = voice;
+					await this.saveSettings();
 				},
 			});
 		}
@@ -240,5 +260,17 @@ export default class LetsHearItPlugin extends Plugin {
 		if (this.player) {
 			this.player.hide();
 		}
+	}
+
+	public async loadSettings(): Promise<void> {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	public async saveSettings(): Promise<void> {
+		await this.saveData(this.settings);
+	}
+
+	public getTTSEngine(): TTSEngine | null {
+		return this.ttsEngine;
 	}
 }

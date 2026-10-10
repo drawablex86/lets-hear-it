@@ -4,6 +4,7 @@ import { TTSEngine, TTSState } from "../engine/ttsEngine";
 export interface FloatingPlayerOptions {
 	ttsEngine: TTSEngine;
 	onClose?: () => void;
+	onVoiceChange?: (voice: string) => void;
 }
 
 export class FloatingPlayer {
@@ -13,14 +14,17 @@ export class FloatingPlayer {
 	private playPauseBtn: HTMLButtonElement | null = null;
 	private stopBtn: HTMLButtonElement | null = null;
 	private speedSelect: HTMLSelectElement | null = null;
+	private voiceSelect: HTMLSelectElement | null = null;
 	private isVisible = false;
 
 	private ttsEngine: TTSEngine;
 	private onClose?: () => void;
+	private onVoiceChange?: (voice: string) => void;
 
 	constructor(options: FloatingPlayerOptions) {
 		this.ttsEngine = options.ttsEngine;
 		this.onClose = options.onClose;
+		this.onVoiceChange = options.onVoiceChange;
 	}
 
 	/**
@@ -111,9 +115,10 @@ export class FloatingPlayer {
 			{ label: "2.0x", value: "2.0" },
 		];
 
+		const currentRate = this.ttsEngine.getPlaybackRate().toString();
 		for (const s of speeds) {
 			const opt = speedSelect.createEl("option", { value: s.value, text: s.label });
-			if (s.value === "1.0") {
+			if (s.value === currentRate || (currentRate === "1" && s.value === "1.0")) {
 				opt.selected = true;
 			}
 		}
@@ -123,6 +128,45 @@ export class FloatingPlayer {
 			this.ttsEngine.setPlaybackRate(val);
 		});
 		this.speedSelect = speedSelect;
+
+		// Voice Selector
+		const voiceSelect = controlsEl.createEl("select", {
+			cls: "lets-hear-it-voice-select",
+			attr: { "aria-label": "Select Voice", title: "Select Voice" },
+		});
+
+		const quickVoices = [
+			{ id: "af_heart", label: "Heart (US Female)" },
+			{ id: "af_bella", label: "Bella (US Female)" },
+			{ id: "af_nicole", label: "Nicole (US Female)" },
+			{ id: "af_aoede", label: "Aoede (US Female)" },
+			{ id: "af_sarah", label: "Sarah (US Female)" },
+			{ id: "am_michael", label: "Michael (US Male)" },
+			{ id: "am_fenrir", label: "Fenrir (US Male)" },
+			{ id: "am_puck", label: "Puck (US Male)" },
+			{ id: "am_echo", label: "Echo (US Male)" },
+			{ id: "bf_emma", label: "Emma (UK Female)" },
+			{ id: "bf_isabella", label: "Isabella (UK Female)" },
+			{ id: "bm_george", label: "George (UK Male)" },
+			{ id: "bm_fable", label: "Fable (UK Male)" },
+		];
+
+		const activeVoice = this.ttsEngine.getVoice();
+		for (const v of quickVoices) {
+			const opt = voiceSelect.createEl("option", { value: v.id, text: v.label });
+			if (v.id === activeVoice) {
+				opt.selected = true;
+			}
+		}
+
+		voiceSelect.addEventListener("change", () => {
+			const selectedVoice = voiceSelect.value;
+			this.ttsEngine.setVoice(selectedVoice);
+			if (this.onVoiceChange) {
+				this.onVoiceChange(selectedVoice);
+			}
+		});
+		this.voiceSelect = voiceSelect;
 
 		// Close / Dismiss Button
 		const closeBtn = container.createEl("button", {

@@ -37,6 +37,7 @@ export class TTSEngine {
 	private activeSourceNode: AudioBufferSourceNode | null = null;
 
 	// Audio scheduling tracking
+	private voice = "af_heart";
 	private playbackRate = 1.0;
 	private sentenceStartTime = 0;
 	private sentencePauseOffset = 0;
@@ -48,6 +49,19 @@ export class TTSEngine {
 	constructor(audioContext: AudioContext, events: TTSEngineEvents = {}) {
 		this.audioContext = audioContext;
 		this.events = events;
+
+		// Ensure global caches object exists to prevent Kokoro voice downloader ReferenceErrors
+		try {
+			const target = (typeof window !== "undefined" ? window : globalThis) as any;
+			if (!target.caches || typeof target.caches.open !== "function") {
+				target.caches = {
+					open: async () => ({
+						match: async () => undefined,
+						put: async () => {},
+					}),
+				};
+			}
+		} catch (e) {}
 	}
 
 	public static getInstance(audioContext: AudioContext, events: TTSEngineEvents = {}): TTSEngine {
@@ -58,6 +72,18 @@ export class TTSEngine {
 			TTSEngine.instance.events = { ...TTSEngine.instance.events, ...events };
 		}
 		return TTSEngine.instance;
+	}
+
+	public setVoice(voice: string) {
+		if (this.voice !== voice) {
+			this.voice = voice;
+			// Clear upcoming pre-buffered sentences since voice changed
+			this.audioCache.clear();
+		}
+	}
+
+	public getVoice(): string {
+		return this.voice;
 	}
 
 	public setEvents(events: TTSEngineEvents) {
@@ -243,7 +269,7 @@ export class TTSEngine {
 	public async synthesizeSentence(text: string, sentenceIndex: number): Promise<SentenceAudioItem> {
 		const model = await this.initModel();
 		const rawAudio = await model.generate(text, {
-			voice: "af_heart",
+			voice: this.voice as any,
 			speed: 1.0, // Base audio generated at normal speed; speed scaling handled in WebAudio node
 		});
 

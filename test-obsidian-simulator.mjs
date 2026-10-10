@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import Module from "module";
 
-// Mock globals for browser/renderer
+// Mock globals
 globalThis.self = globalThis;
 globalThis.window = globalThis;
 globalThis.document = {
@@ -10,20 +10,31 @@ globalThis.document = {
     classList: { add: () => {}, remove: () => {}, contains: () => false },
     style: {},
     appendChild: () => {},
+    removeChild: () => {},
     addEventListener: () => {},
     removeEventListener: () => {},
     setAttribute: () => {},
     removeAttribute: () => {},
+    empty: () => {},
+    createEl: (t, opts) => ({
+      classList: { add: () => {}, remove: () => {} },
+      style: {},
+      createEl: () => ({ addEventListener: () => {}, setAttribute: () => {} }),
+      addEventListener: () => {},
+      appendChild: () => {},
+      setAttribute: () => {}
+    })
   }),
   body: {
     appendChild: () => {},
     removeChild: () => {},
   }
 };
+
 globalThis.AudioContext = class {
-  constructor() {
+  constructor(opts) {
     this.state = "running";
-    this.sampleRate = 24000;
+    this.sampleRate = opts?.sampleRate || 24000;
   }
   createBuffer(channels, length, rate) {
     const channelData = new Float32Array(length);
@@ -48,6 +59,7 @@ globalThis.AudioContext = class {
   resume() { return Promise.resolve(); }
   close() { return Promise.resolve(); }
 };
+
 globalThis.CSS = {
   highlights: {
     set: () => {},
@@ -64,17 +76,32 @@ const mockPlugin = class Plugin {
   }
   load() {}
   addCommand() {}
-  addSettingTab() {}
+  addSettingTab(tab) {
+    this.settingTab = tab;
+    console.log("[Obsidian] Registered SettingTab successfully!");
+  }
   addRibbonIcon() { return { addClass: () => {} }; }
   addStatusBarItem() { return { setText: () => {} }; }
   registerEvent() {}
-  loadData() { return Promise.resolve({}); }
-  saveData() { return Promise.resolve(); }
+  loadData() { return Promise.resolve({ voice: "af_bella", playbackSpeed: 1.25 }); }
+  saveData(data) {
+    console.log("[Obsidian] Saved settings to disk:", JSON.stringify(data));
+    return Promise.resolve();
+  }
 };
 
 const mockObsidian = {
   Plugin: mockPlugin,
-  PluginSettingTab: class {},
+  PluginSettingTab: class {
+    constructor(app, plugin) {
+      this.app = app;
+      this.plugin = plugin;
+      this.containerEl = {
+        empty: () => {},
+        createEl: (t, o) => ({ textContent: o?.text || "" })
+      };
+    }
+  },
   FileSystemAdapter: class {},
   Notice: class {
     constructor(msg) { console.log(`[Obsidian Notice]: ${msg}`); }
@@ -82,9 +109,17 @@ const mockObsidian = {
     hide() {}
   },
   Setting: class {
-    setName() { return this; }
-    setDesc() { return this; }
-    addDropdown() { return this; }
+    constructor(container) { this.container = container; }
+    setName(n) { return this; }
+    setDesc(d) { return this; }
+    addDropdown(cb) {
+      cb({
+        addOption: (k, v) => {},
+        setValue: (v) => {},
+        onChange: (handler) => { this.changeHandler = handler; }
+      });
+      return this;
+    }
     addSlider() { return this; }
   },
   setIcon: () => {},
@@ -119,16 +154,32 @@ const plugin = new PluginClass(mockApp, { id: "lets-hear-it", dir: path.resolve(
 console.log("=== Calling onload() ===");
 await plugin.onload();
 
+console.log("=== Verifying loaded settings ===");
+console.log("Plugin voice setting:", plugin.settings.voice);
+console.log("Plugin speed setting:", plugin.settings.playbackSpeed);
+if (plugin.settings.voice !== "af_bella" || plugin.settings.playbackSpeed !== 1.25) {
+  throw new Error("Settings failed to load correctly!");
+}
+
 console.log("=== Initializing AudioContext & Engine ===");
-await plugin.ensureAudioContext();
+const ctx = await plugin.ensureAudioContext();
+console.log("AudioContext sampleRate:", ctx.sampleRate);
+if (ctx.sampleRate !== 24000) {
+  throw new Error(`AudioContext sampleRate is ${ctx.sampleRate}, expected 24000!`);
+}
 
-console.log("=== Initializing Kokoro Model ===");
-await plugin.ttsEngine.initModel();
+console.log("Engine active voice:", plugin.ttsEngine.getVoice());
+if (plugin.ttsEngine.getVoice() !== "af_bella") {
+  throw new Error("Engine voice does not match plugin settings!");
+}
 
-console.log("=== Synthesizing test sentence ===");
-const testSentence = "Hello, this is an automated test of local text to speech.";
+console.log("=== Synthesizing sentence with selected voice 'af_bella' ===");
+const testSentence = "Testing custom voice synthesis.";
 const item = await plugin.ttsEngine.synthesizeSentence(testSentence, 0);
 console.log(`Generated audio item! Duration: ${item.duration}s, audioBuffer length: ${item.audioBuffer.length}`);
 
-console.log("=== AUTOMATED TEST PASSED WITH COMPLETE SUCCESS! ===");
+console.log("=== Testing Settings Tab Display ===");
+plugin.settingTab.display();
+
+console.log("=== AUTOMATED SIMULATION TEST PASSED ALL CHECKS! ===");
 process.exit(0);
