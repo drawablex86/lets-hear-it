@@ -15,7 +15,7 @@ Each task is documented in a dedicated markdown specification file under `tasks/
 - [x] [tasks/task-4-markdown-cleaner.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-4-markdown-cleaner.md) — **Task 4: Markdown Cleaner & Sentence Segmenter** (`src/engine/cleaner.ts`)
 - [x] [tasks/task-5-floating-player-ui.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-5-floating-player-ui.md) — **Task 5: Floating Audio Player UI** (`src/ui/player.ts`, `styles.css`)
 - [x] [tasks/task-6-synchronized-word-tracker.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-6-synchronized-word-tracker.md) — **Task 6: Synchronized Word Tracker** (`src/ui/highlighter.ts`, `styles.css`)
-- [ ] [tasks/task-7-verification-and-integration.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-7-verification-and-integration.md) — **Task 7: Build Verification & End-to-End Integration**
+- [x] [tasks/task-7-verification-and-integration.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-7-verification-and-integration.md) — **Task 7: Build Verification & End-to-End Integration**
 
 ---
 
