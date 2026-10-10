@@ -80,7 +80,24 @@ const copyWasmPlugin = {
 									var b = new XMLHttpRequest; b.open("GET", a, false); b.responseType = "arraybuffer"; b.send(null); return new Uint8Array(b.response);
 								}
 							}`;
-							content = content.replace(xhrSyncPattern, fsSyncReplacement);
+							// 4. Directly patch Ta(a) which resolves wasm binary Uint8Array
+							const taPattern = /async function Ta\(a\)\{if\(!ta\)try\{var b=await la\(a\);return new Uint8Array\(b\)\}catch\{\}if\(a==Sa&&ta\)a=new Uint8Array\(ta\);else if\(ma\)a=ma\(a\);else throw"both async and sync fetching of the wasm failed";return a\}/g;
+							const taReplacement = `async function Ta(a) {
+								if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+									const fs = require("fs");
+									const p = decodeURIComponent(a.replace(/^file:\\/\\//, ""));
+									if (fs.existsSync(p)) {
+										const buf = fs.readFileSync(p);
+										return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+									}
+								}
+								if (!ta) try { var b = await la(a); return new Uint8Array(b); } catch {}
+								if (a == Sa && ta) a = new Uint8Array(ta);
+								else if (ma) a = ma(a);
+								else throw "both async and sync fetching of the wasm failed";
+								return a;
+							}`;
+							content = content.replace(taPattern, taReplacement);
 
 							for (const targetDir of targets) {
 								fs.writeFileSync(path.join(targetDir, file), content, "utf8");

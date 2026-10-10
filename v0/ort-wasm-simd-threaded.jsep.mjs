@@ -5,19 +5,8 @@ f.jsepInit=(a,b)=>{if("webgpu"===a){[f.hd,f.Dd,f.Hd,f.jd,f.Gd,f.bc,f.Id,f.Kd,f.E
 f.Ud,f.webnnEnableTraceEvent]=b.slice(1);f.webnnReleaseTensorId=f.vd;f.webnnUploadTensor=f.wd;f.webnnRegisterMLContext=f.Ud;f.webnnOnRunStart=c=>d.onRunStart(c);f.webnnOnRunEnd=d.onRunEnd.bind(d);f.webnnOnReleaseSession=c=>{d.onReleaseSession(c)};f.webnnCreateMLTensorDownloader=(c,e)=>d.createMLTensorDownloader(c,e);f.webnnRegisterMLTensor=(c,e,g,k)=>d.registerMLTensor(c,e,g,k);f.webnnCreateMLContext=c=>d.createMLContext(c);f.webnnRegisterGraphInput=d.registerGraphInput.bind(d);f.webnnIsGraphInput=
 d.isGraphInput.bind(d);f.webnnRegisterGraphOutput=d.registerGraphOutput.bind(d);f.webnnIsGraphOutput=d.isGraphOutput.bind(d);f.webnnCreateTemporaryTensor=d.createTemporaryTensor.bind(d);f.webnnIsGraphInputOutputTypeSupported=d.isGraphInputOutputTypeSupported.bind(d)}};
 let fa=()=>{const a=b=>(...d)=>{const c=q;d=b(...d);return q!=c?ea():d};(b=>{for(const d of b)f[d]=a(f[d])})(["_OrtAppendExecutionProvider","_OrtCreateSession","_OrtRun","_OrtRunWithBinding","_OrtBindInput"]);"undefined"!==typeof da&&(f._OrtRun=da(f._OrtRun),f._OrtRunWithBinding=da(f._OrtRunWithBinding));fa=void 0};f.asyncInit=()=>{fa?.()};var ha="./this.program",ia=(a,b)=>{throw b;},ja=import.meta.url,ka="",la,ma;
-if(h){var fs=require("fs");ja.startsWith("file:")&&(ka=require("path").dirname(require("url").fileURLToPath(ja))+"/");ma=a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a)};la=async a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a,void 0)};1<process.argv.length&&(ha=process.argv[1].replace(/\\/g,"/"));process.argv.slice(2);ia=(a,b)=>{process.exitCode=a;throw b;}}else if(aa||ba){try{ka=(new URL(".",ja)).href}catch{}h||(ma = a => {
-								if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
-									const fs = require("fs");
-									const p = decodeURIComponent(a.replace(/^file:\/\//, ""));
-									if (fs.existsSync(p)) {
-										const buf = fs.readFileSync(p);
-										return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-									}
-								}
-								if (ba) {
-									var b = new XMLHttpRequest; b.open("GET", a, false); b.responseType = "arraybuffer"; b.send(null); return new Uint8Array(b.response);
-								}
-							},la=async a=>{if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+if(h){var fs=require("fs");ja.startsWith("file:")&&(ka=require("path").dirname(require("url").fileURLToPath(ja))+"/");ma=a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a)};la=async a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a,void 0)};1<process.argv.length&&(ha=process.argv[1].replace(/\\/g,"/"));process.argv.slice(2);ia=(a,b)=>{process.exitCode=a;throw b;}}else if(aa||ba){try{ka=(new URL(".",ja)).href}catch{}h||(ba&&(ma=a=>{var b=new XMLHttpRequest;b.open("GET",a,!1);b.responseType="arraybuffer";
+b.send(null);return new Uint8Array(b.response)}),la=async a=>{if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
 								const fs = require("fs");
 								const p = decodeURIComponent(a.replace(/^file:\/\//, ""));
 								if (fs.existsSync(p)) {
@@ -38,7 +27,21 @@ if(h){var qa=require("util"),ra=a=>"object"==typeof a?qa.inspect(a):a;oa=(...a)=
 if(h&&m){var za=ca.parentPort;za.on("message",a=>global.onmessage?.({data:a}));Object.assign(globalThis,{self:global,postMessage:a=>za.postMessage(a)});process.on("uncaughtException",a=>{postMessage({Vc:"uncaughtException",error:a});process.exit(1)})}var Aa;
 if(m){var Ba=!1;self.onunhandledrejection=b=>{throw b.reason||b;};function a(b){try{var d=b.data,c=d.Vc;if("load"===c){let e=[];self.onmessage=g=>e.push(g);Aa=()=>{postMessage({Vc:"loaded"});for(let g of e)a(g);self.onmessage=a};for(const g of d.Ad)if(!f[g]||f[g].proxy)f[g]=(...k)=>{postMessage({Vc:"callHandler",yd:g,args:k})},"print"==g&&(sa=f[g]),"printErr"==g&&(r=f[g]);x=d.Rd;wa();ua=d.Sd;Ca();Da()}else if("run"===c){Ea(d.Uc);Fa(d.Uc,0,0,1,0,0);Ga();Ha(d.Uc);Ba||(Ia(),Ba=!0);try{Ja(d.Pd,d.ed)}catch(e){if("unwind"!=
 e)throw e;}}else"setimmediate"!==d.target&&("checkMailbox"===c?Ba&&Ka():c&&(r(`worker: received unknown command ${c}`),r(d)))}catch(e){throw La(),e;}}self.onmessage=a}var A,B,Ma,Na,C,D,Oa,E,F,Pa,Qa=!1;function wa(){var a=x.buffer;f.HEAP8=A=new Int8Array(a);Ma=new Int16Array(a);f.HEAPU8=B=new Uint8Array(a);Na=new Uint16Array(a);f.HEAP32=C=new Int32Array(a);f.HEAPU32=D=new Uint32Array(a);Oa=new Float32Array(a);E=new Float64Array(a);F=new BigInt64Array(a);Pa=new BigUint64Array(a)}
-function Ra(){Qa=!0;m?Aa():G.ub()}function H(a){a="Aborted("+a+")";r(a);t=!0;a=new WebAssembly.RuntimeError(a+". Build with -sASSERTIONS for more info.");ya?.(a);throw a;}var Sa;async function Ta(a){if(!ta)try{var b=await la(a);return new Uint8Array(b)}catch{}if(a==Sa&&ta)a=new Uint8Array(ta);else if(ma)a=ma(a);else throw"both async and sync fetching of the wasm failed";return a}
+function Ra(){Qa=!0;m?Aa():G.ub()}function H(a){a="Aborted("+a+")";r(a);t=!0;a=new WebAssembly.RuntimeError(a+". Build with -sASSERTIONS for more info.");ya?.(a);throw a;}var Sa;async function Ta(a) {
+								if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+									const fs = require("fs");
+									const p = decodeURIComponent(a.replace(/^file:\/\//, ""));
+									if (fs.existsSync(p)) {
+										const buf = fs.readFileSync(p);
+										return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+									}
+								}
+								if (!ta) try { var b = await la(a); return new Uint8Array(b); } catch {}
+								if (a == Sa && ta) a = new Uint8Array(ta);
+								else if (ma) a = ma(a);
+								else throw "both async and sync fetching of the wasm failed";
+								return a;
+							}
 async function Ua(a,b){try{var d=await Ta(a);return await WebAssembly.instantiate(d,b)}catch(c){r(`failed to asynchronously prepare wasm: ${c}`),H(c)}}async function Va(a){var b=Sa;if(!ta&&!na(b)&&!h)try{var d=fetch(b,{credentials:"same-origin"});return await WebAssembly.instantiateStreaming(d,a)}catch(c){r(`wasm streaming compile failed: ${c}`),r("falling back to ArrayBuffer instantiation")}return Ua(b,a)}
 function Wa(){Xa={ma:Ya,hb:Za,g:$a,J:ab,f:bb,o:cb,i:db,$:eb,b:fb,S:gb,Ha:hb,n:ib,aa:jb,Ya:mb,Da:nb,Fa:ob,Za:pb,Wa:qb,Pa:rb,Va:sb,ka:tb,Ea:ub,Ba:vb,Xa:wb,Ca:xb,cb:yb,fa:zb,wa:Ab,ua:Bb,ea:Cb,N:Db,H:Eb,va:Fb,_:Gb,xa:Hb,Sa:Ib,za:Jb,Ia:Kb,sa:Lb,ga:Mb,Ra:Ha,$a:Nb,Q:Ob,r:Pb,c:Qb,ib:Rb,y:Sb,M:Tb,D:Ub,l:Vb,s:Wb,jb:Xb,I:Yb,R:Zb,j:$b,u:ac,q:bc,k:cc,Ma:dc,Na:ec,Oa:fc,Ka:gc,La:hc,ta:ic,eb:jc,bb:kc,v:lc,ba:mc,ha:nc,ab:oc,V:pc,_a:qc,Aa:rc,F:sc,U:tc,la:uc,ya:vc,gb:wc,fb:xc,Ta:yc,Ua:zc,Ga:Ac,T:Bc,Ja:Cc,ja:Dc,Qa:Ec,
 ia:Fc,lb:Gc,na:Hc,mb:Ic,oa:Jc,G:Kc,e:Lc,t:Mc,w:Nc,B:Oc,nb:Pc,Z:Qc,x:Rc,pa:Sc,X:Tc,ca:Uc,ob:Vc,pb:Wc,O:Xc,qb:Yc,qa:Zc,rb:$c,L:ad,Y:bd,d:cd,A:dd,m:ed,kb:fd,p:gd,z:hd,C:jd,E:kd,K:ld,ra:md,P:nd,da:od,W:pd,sb:qd,tb:rd,h:sd,a:x,db:td};return{a:Xa}}

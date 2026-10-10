@@ -1,19 +1,8 @@
 async function ortWasmThreaded(moduleArg={}){var moduleRtn;var g=moduleArg,aa=!!globalThis.window,ba=!!globalThis.WorkerGlobalScope,m=globalThis.process?.versions?.node&&"renderer"!=globalThis.process?.type,n=ba&&self.name?.startsWith("em-pthread");if(m){const {createRequire:a}={ createRequire: () => () => ({}) };var require=a(import.meta.url),ca={};global.Worker=ca.Worker;n=(ba=!ca.Qe)&&"em-pthread"==ca.workerData}g.mountExternalData=(a,b)=>{a.startsWith("./")&&(a=a.substring(2));(g.ed||(g.ed=new Map)).set(a,b)};
 g.unmountExternalData=()=>{delete g.ed;delete g.Te;delete g.Se;delete g.Ue};var SharedArrayBuffer=globalThis.SharedArrayBuffer??(new WebAssembly.Memory({initial:0,maximum:0,shared:!0})).buffer.constructor;
 let ea=()=>{const a=b=>(...c)=>{const d=r;c=b(...c);return r!=d?da():c};(b=>{for(const c of b)g[c]=a(g[c])})(["_OrtAppendExecutionProvider","_OrtCreateSession","_OrtRun","_OrtRunWithBinding","_OrtBindInput"]);"undefined"!==typeof jsepRunAsync&&(g._OrtRun=jsepRunAsync(g._OrtRun),g._OrtRunWithBinding=jsepRunAsync(g._OrtRunWithBinding));ea=void 0};g.asyncInit=()=>{ea?.()};var fa="./this.program",ha=(a,b)=>{throw b;},ia=import.meta.url,ka="",la,ma;
-if(m){var fs=require("fs");ia.startsWith("file:")&&(ka=require("path").dirname(require("url").fileURLToPath(ia))+"/");ma=a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a)};la=async a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a,void 0)};1<process.argv.length&&(fa=process.argv[1].replace(/\\/g,"/"));process.argv.slice(2);ha=(a,b)=>{process.exitCode=a;throw b;}}else if(aa||ba){try{ka=(new URL(".",ia)).href}catch{}m||(ma = a => {
-								if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
-									const fs = require("fs");
-									const p = decodeURIComponent(a.replace(/^file:\/\//, ""));
-									if (fs.existsSync(p)) {
-										const buf = fs.readFileSync(p);
-										return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-									}
-								}
-								if (ba) {
-									var b = new XMLHttpRequest; b.open("GET", a, false); b.responseType = "arraybuffer"; b.send(null); return new Uint8Array(b.response);
-								}
-							},la=async a=>{if(na(a))return new Promise((c,d)=>{var e=new XMLHttpRequest;e.open("GET",a,!0);e.responseType="arraybuffer";e.onload=()=>{200==e.status||0==e.status&&e.response?c(e.response):d(e.status)};e.onerror=d;e.send(null)});if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
+if(m){var fs=require("fs");ia.startsWith("file:")&&(ka=require("path").dirname(require("url").fileURLToPath(ia))+"/");ma=a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a)};la=async a=>{a=na(a)?new URL(a):a;return fs.readFileSync(a,void 0)};1<process.argv.length&&(fa=process.argv[1].replace(/\\/g,"/"));process.argv.slice(2);ha=(a,b)=>{process.exitCode=a;throw b;}}else if(aa||ba){try{ka=(new URL(".",ia)).href}catch{}m||(ba&&(ma=a=>{var b=new XMLHttpRequest;b.open("GET",a,!1);b.responseType="arraybuffer";
+b.send(null);return new Uint8Array(b.response)}),la=async a=>{if(na(a))return new Promise((c,d)=>{var e=new XMLHttpRequest;e.open("GET",a,!0);e.responseType="arraybuffer";e.onload=()=>{200==e.status||0==e.status&&e.response?c(e.response):d(e.status)};e.onerror=d;e.send(null)});if (typeof require === "function" && typeof a === "string" && a.startsWith("file://")) {
 								const fs = require("fs");
 								const p = decodeURIComponent(a.replace(/^file:\/\//, ""));
 								if (fs.existsSync(p)) {
