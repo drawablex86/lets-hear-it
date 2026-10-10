@@ -1,5 +1,5 @@
 import { Notice } from "obsidian";
-import { KokoroTTS } from "kokoro-js";
+import { KokoroTTS, env as kokoroEnv } from "kokoro-js";
 import * as ort from "onnxruntime-web";
 
 export interface SentenceAudioItem {
@@ -92,9 +92,13 @@ export class TTSEngine {
 	 */
 	public static configureWasmPaths(basePluginPath: string) {
 		try {
+			const formattedPath = basePluginPath.endsWith("/") ? basePluginPath : `${basePluginPath}/`;
 			if (ort && ort.env && ort.env.wasm) {
-				ort.env.wasm.wasmPaths = basePluginPath.endsWith("/") ? basePluginPath : `${basePluginPath}/`;
+				ort.env.wasm.wasmPaths = formattedPath;
 				ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
+			}
+			if (kokoroEnv) {
+				kokoroEnv.wasmPaths = formattedPath;
 			}
 		} catch (err) {
 			console.warn("[let's hear it] Failed to set custom ort wasm path:", err);
@@ -159,29 +163,14 @@ export class TTSEngine {
 			} catch (firstError) {
 				console.warn(`[let's hear it] Failed to initialize with ${device}:`, firstError);
 				if (device === "webgpu") {
-					device = "wasm";
-					try {
-						console.log(`[let's hear it] Retrying with device: wasm`);
-						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-							dtype,
-							device: "wasm",
-							progress_callback: progressCallback,
-						});
-					} catch (wasmError) {
-						console.warn(`[let's hear it] Failed to initialize with wasm, falling back to cpu:`, wasmError);
-						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-							dtype,
-							device: "cpu",
-							progress_callback: progressCallback,
-						});
-					}
-				} else {
-					console.log(`[let's hear it] Falling back to cpu`);
+					console.log(`[let's hear it] Retrying with device: wasm`);
 					this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
 						dtype,
-						device: "cpu",
+						device: "wasm",
 						progress_callback: progressCallback,
 					});
+				} else {
+					throw firstError;
 				}
 			}
 

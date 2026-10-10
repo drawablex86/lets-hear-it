@@ -11,7 +11,7 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = process.argv[2] === "production";
 
-// Helper plugin to copy onnxruntime-web WASM binaries to output directory and v0 folder
+// Helper plugin to copy and patch onnxruntime-web WASM & MJS binaries to output directories
 const copyWasmPlugin = {
 	name: "copy-wasm-plugin",
 	setup(build) {
@@ -33,9 +33,18 @@ const copyWasmPlugin = {
 							for (const targetDir of targets) {
 								fs.copyFileSync(src, path.join(targetDir, file));
 							}
+						} else if (file.endsWith(".mjs")) {
+							let content = fs.readFileSync(path.join(ortDistPath, file), "utf8");
+							// Sanitize node-only imports that cause browser ES module syntax errors in Electron
+							content = content.replace(/await\s+import\s*\(\s*["']module["']\s*\)/g, "{ createRequire: () => () => ({}) }");
+							content = content.replace(/await\s+import\s*\(\s*["']worker_threads["']\s*\)/g, "{ workerData: undefined }");
+							content = content.replace(/require\s*\(\s*["']worker_threads["']\s*\)/g, "{}");
+							for (const targetDir of targets) {
+								fs.writeFileSync(path.join(targetDir, file), content, "utf8");
+							}
 						}
 					}
-					console.log("[copy-wasm-plugin] onnxruntime-web .wasm files copied successfully.");
+					console.log("[copy-wasm-plugin] onnxruntime-web .wasm and .mjs files copied and sanitized successfully.");
 				}
 
 				// Also sync main.js, manifest.json, styles.css to v0

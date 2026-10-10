@@ -13,6 +13,11 @@ export default class LetsHearItPlugin extends Plugin {
 	private currentSentences: SentenceChunk[] = [];
 
 	async onload() {
+		// Ensure Electron renderer flag is set so onnxruntime doesn't treat context as Node CLI
+		if (typeof process !== "undefined" && !process.type) {
+			process.type = "renderer";
+		}
+
 		// 1. Configure ONNX WASM asset directory path for Electron sandbox
 		this.configureWasmDirectory();
 
@@ -92,7 +97,9 @@ export default class LetsHearItPlugin extends Plugin {
 			if (adapter instanceof FileSystemAdapter) {
 				const basePath = adapter.getBasePath();
 				const pluginDir = `${basePath}/${this.manifest.dir}`;
-				TTSEngine.configureWasmPaths(pluginDir);
+				// Ensure trailing slash and format as file:// URL for Chromium fetch/import
+				const fileUrl = pluginDir.startsWith("/") ? `file://${pluginDir}/` : `file:///${pluginDir}/`;
+				TTSEngine.configureWasmPaths(fileUrl);
 			}
 		} catch (err) {
 			console.warn("[let's hear it] Could not configure custom wasm paths:", err);
