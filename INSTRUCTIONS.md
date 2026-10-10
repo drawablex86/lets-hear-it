@@ -12,7 +12,7 @@ Each task is documented in a dedicated markdown specification file under `tasks/
 - [x] [tasks/task-1-project-setup.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-1-project-setup.md) — **Task 1: Project Setup & Config** (`package.json`, `esbuild.config.mjs`, `manifest.json`, `tsconfig.json`)
 - [x] [tasks/task-2-ribbon-and-commands.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-2-ribbon-and-commands.md) — **Task 2: Custom Ribbon Icon & Command Registration** (`src/ui/icons.ts`, `src/main.ts`)
 - [x] [tasks/task-3-tts-engine-and-queue.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-3-tts-engine-and-queue.md) — **Task 3: Zero-Setup Kokoro Engine & Queue** (`src/engine/ttsEngine.ts`)
-- [ ] [tasks/task-4-markdown-cleaner.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-4-markdown-cleaner.md) — **Task 4: Markdown Cleaner & Sentence Segmenter** (`src/engine/cleaner.ts`)
+- [x] [tasks/task-4-markdown-cleaner.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-4-markdown-cleaner.md) — **Task 4: Markdown Cleaner & Sentence Segmenter** (`src/engine/cleaner.ts`)
 - [ ] [tasks/task-5-floating-player-ui.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-5-floating-player-ui.md) — **Task 5: Floating Audio Player UI** (`src/ui/player.ts`, `styles.css`)
 - [ ] [tasks/task-6-synchronized-word-tracker.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-6-synchronized-word-tracker.md) — **Task 6: Synchronized Word Tracker** (`src/ui/highlighter.ts`, `styles.css`)
 - [ ] [tasks/task-7-verification-and-integration.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/tasks/task-7-verification-and-integration.md) — **Task 7: Build Verification & End-to-End Integration**
