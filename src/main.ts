@@ -210,43 +210,52 @@ export default class LetsHearItPlugin extends Plugin {
 		}
 	}
 
+	private isStartingPlayback = false;
+
 	public async readCurrentNote(): Promise<void> {
-		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!activeView) {
-			new Notice("No active markdown note to read.");
-			return;
+		if (this.isStartingPlayback) return;
+		this.isStartingPlayback = true;
+
+		try {
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!activeView) {
+				new Notice("No active markdown note to read.");
+				return;
+			}
+
+			await this.ensureAudioContext();
+
+			if (this.highlighter) {
+				this.highlighter.setActiveView(activeView);
+				this.highlighter.clearHighlight();
+			}
+
+			// Show floating player
+			if (this.player) {
+				this.player.show();
+			}
+
+			// Extract note content from editor or view
+			const rawMarkdown = activeView.editor ? activeView.editor.getValue() : activeView.getViewData();
+			if (!rawMarkdown || !rawMarkdown.trim()) {
+				new Notice("Current note is empty.");
+				return;
+			}
+
+			const { sentences } = cleanMarkdownForSpeech(rawMarkdown);
+			if (sentences.length === 0) {
+				new Notice("No speakable text found in current note.");
+				return;
+			}
+
+			this.currentSentences = sentences;
+			const sentenceTexts = sentences.map((s) => s.text);
+
+			new Notice(`let's hear it: Reading "${activeView.file?.basename ?? "note"}" (${sentences.length} sentences)`);
+			await this.ttsEngine?.play(sentenceTexts, 0);
+		} finally {
+			this.isStartingPlayback = false;
 		}
-
-		await this.ensureAudioContext();
-
-		if (this.highlighter) {
-			this.highlighter.setActiveView(activeView);
-			this.highlighter.clearHighlight();
-		}
-
-		// Show floating player
-		if (this.player) {
-			this.player.show();
-		}
-
-		// Extract note content from editor or view
-		const rawMarkdown = activeView.editor ? activeView.editor.getValue() : activeView.getViewData();
-		if (!rawMarkdown || !rawMarkdown.trim()) {
-			new Notice("Current note is empty.");
-			return;
-		}
-
-		const { sentences } = cleanMarkdownForSpeech(rawMarkdown);
-		if (sentences.length === 0) {
-			new Notice("No speakable text found in current note.");
-			return;
-		}
-
-		this.currentSentences = sentences;
-		const sentenceTexts = sentences.map((s) => s.text);
-
-		new Notice(`let's hear it: Reading "${activeView.file?.basename ?? "note"}" (${sentences.length} sentences)`);
-		await this.ttsEngine?.play(sentenceTexts, 0);
 	}
 
 	public stopReading(): void {

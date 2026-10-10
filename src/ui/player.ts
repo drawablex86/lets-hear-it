@@ -83,7 +83,12 @@ export class FloatingPlayer {
 			attr: { "aria-label": "Play / Pause", title: "Play / Pause" },
 		});
 		setIcon(playPauseBtn, "play");
+		let lastClickTime = 0;
 		playPauseBtn.addEventListener("click", () => {
+			const now = Date.now();
+			if (now - lastClickTime < 300) return; // Prevent double-click race conditions
+			lastClickTime = now;
+
 			const state = this.ttsEngine.getState();
 			if (state === "playing") {
 				this.ttsEngine.pause();

@@ -35,6 +35,9 @@ export class TTSEngine {
 	private currentSentenceIndex = -1;
 	private audioCache = new Map<number, Promise<SentenceAudioItem>>();
 	private activeSourceNode: AudioBufferSourceNode | null = null;
+	private playbackSessionEpoch = 0;
+	private isPrefetching = false;
+	private static readonly BUFFER_LOOKAHEAD = 2; // Strict 2-sentence lookahead buffer
 
 	// Audio scheduling tracking
 	private voice = "af_heart";
@@ -327,16 +330,36 @@ export class TTSEngine {
 	}
 
 	/**
-	 * Pre-buffers up to `prefetchCount` upcoming sentences in background
+	 * Strictly pre-buffers at most 2 sentences ahead sequentially to avoid RAM overload & WASM spikes.
+	 * Also purges past sentences from the cache to keep memory consumption low.
 	 */
-	private prefetchUpcomingSentences(currentIndex: number, prefetchCount = 3) {
-		for (let i = 1; i <= prefetchCount; i++) {
-			const targetIndex = currentIndex + i;
-			if (targetIndex < this.sentencesQueue.length && !this.audioCache.has(targetIndex)) {
-				this.getSentenceAudioPromise(targetIndex).catch((err) => {
-					console.warn(`[let's hear it] Prefetch error for sentence ${targetIndex}:`, err);
-				});
+	private async prefetchUpcomingSentences(currentIndex: number, currentEpoch: number): Promise<void> {
+		// Evict completed past sentences from cache to prevent RAM exhaustion
+		for (const cachedIndex of Array.from(this.audioCache.keys())) {
+			if (cachedIndex < currentIndex) {
+				this.audioCache.delete(cachedIndex);
 			}
+		}
+
+		if (this.isPrefetching) return;
+		this.isPrefetching = true;
+
+		try {
+			for (let i = 1; i <= TTSEngine.BUFFER_LOOKAHEAD; i++) {
+				const targetIndex = currentIndex + i;
+				if (this.playbackSessionEpoch !== currentEpoch || this.isStopped) {
+					break;
+				}
+				if (targetIndex < this.sentencesQueue.length && !this.audioCache.has(targetIndex)) {
+					try {
+						await this.getSentenceAudioPromise(targetIndex);
+					} catch (err) {
+						console.warn(`[let's hear it] Prefetch error for sentence ${targetIndex}:`, err);
+					}
+				}
+			}
+		} finally {
+			this.isPrefetching = false;
 		}
 	}
 
@@ -345,6 +368,7 @@ export class TTSEngine {
 	 */
 	public async play(sentences: string[], startIndex = 0): Promise<void> {
 		this.stop();
+		const currentEpoch = ++this.playbackSessionEpoch;
 		this.isStopped = false;
 		this.isPaused = false;
 		this.sentencesQueue = sentences;
@@ -356,8 +380,12 @@ export class TTSEngine {
 		}
 
 		await this.resumeAudioContext();
+		if (this.playbackSessionEpoch !== currentEpoch || this.isStopped) {
+			return;
+		}
+
 		this.currentSentenceIndex = startIndex;
-		await this.playSentence(startIndex);
+		await this.playSentence(startIndex, 0, currentEpoch);
 	}
 
 	private async resumeAudioContext() {
@@ -367,24 +395,32 @@ export class TTSEngine {
 	}
 
 	/**
-	 * Plays a specific sentence index, pre-buffering subsequent sentences
+	 * Plays a specific sentence index with strict session epoch validation
 	 */
-	private async playSentence(index: number, startOffset = 0): Promise<void> {
-		if (this.isStopped) return;
+	private async playSentence(index: number, startOffset = 0, currentEpoch = this.playbackSessionEpoch): Promise<void> {
+		if (this.playbackSessionEpoch !== currentEpoch || this.isStopped) return;
 		if (index >= this.sentencesQueue.length) {
-			this.finish();
+			this.finish(currentEpoch);
 			return;
 		}
 
 		this.currentSentenceIndex = index;
 		this.setState("buffering", `Preparing sentence ${index + 1}/${this.sentencesQueue.length}...`);
 
-		// Kick off background pre-fetch for next sentences concurrently
-		this.prefetchUpcomingSentences(index, 2);
+		// Trigger strict 2-sentence sequential pre-fetch in background
+		this.prefetchUpcomingSentences(index, currentEpoch);
 
 		try {
 			const item = await this.getSentenceAudioPromise(index);
-			if (this.isStopped) return;
+			// Validate that session epoch is still valid before initiating WebAudio nodes
+			if (this.playbackSessionEpoch !== currentEpoch || this.isStopped || this.isPaused) {
+				return;
+			}
+
+			// Clean up any previously lingering audio node before creating a new one
+			if (this.activeSourceNode) {
+				this.cleanupSourceNode(this.activeSourceNode);
+			}
 
 			this.currentAudioDuration = item.duration;
 			this.sentencePauseOffset = startOffset;
@@ -398,7 +434,7 @@ export class TTSEngine {
 			this.activeSourceNode = source;
 
 			source.onended = () => {
-				if (this.activeSourceNode === source) {
+				if (this.playbackSessionEpoch === currentEpoch && this.activeSourceNode === source) {
 					this.activeSourceNode = null;
 					this.stopTimeTracking();
 
@@ -407,7 +443,7 @@ export class TTSEngine {
 							this.events.onSentenceEnd(index);
 						}
 						// Advance to next sentence
-						this.playSentence(index + 1);
+						this.playSentence(index + 1, 0, currentEpoch);
 					}
 				}
 			};
@@ -418,8 +454,9 @@ export class TTSEngine {
 
 			this.setState("playing", `Reading sentence ${index + 1}/${this.sentencesQueue.length}`);
 			source.start(0, startOffset);
-			this.startTimeTracking(index);
+			this.startTimeTracking(index, currentEpoch);
 		} catch (error) {
+			if (this.playbackSessionEpoch !== currentEpoch || this.isStopped) return;
 			console.error(`[let's hear it] Playback error at sentence ${index}:`, error);
 			this.setState("error", error instanceof Error ? error.message : String(error));
 			if (this.events.onError) {
@@ -428,11 +465,11 @@ export class TTSEngine {
 		}
 	}
 
-	private startTimeTracking(sentenceIndex: number) {
+	private startTimeTracking(sentenceIndex: number, currentEpoch: number) {
 		this.stopTimeTracking();
 
 		const update = () => {
-			if (this.state === "playing" && this.activeSourceNode) {
+			if (this.playbackSessionEpoch === currentEpoch && this.state === "playing" && this.activeSourceNode) {
 				const elapsedSeconds = (this.audioContext.currentTime - this.sentenceStartTime) * this.playbackRate;
 				if (this.events.onTimeUpdate) {
 					this.events.onTimeUpdate(sentenceIndex, Math.min(elapsedSeconds, this.currentAudioDuration), this.currentAudioDuration);
@@ -451,6 +488,14 @@ export class TTSEngine {
 		}
 	}
 
+	private cleanupSourceNode(source: AudioBufferSourceNode) {
+		source.onended = null;
+		try {
+			source.stop();
+			source.disconnect();
+		} catch (_) {}
+	}
+
 	public pause(): void {
 		if (this.state !== "playing" || !this.activeSourceNode) return;
 
@@ -460,9 +505,7 @@ export class TTSEngine {
 
 		this.stopTimeTracking();
 		if (this.activeSourceNode) {
-			try {
-				this.activeSourceNode.stop();
-			} catch (_) {}
+			this.cleanupSourceNode(this.activeSourceNode);
 			this.activeSourceNode = null;
 		}
 
@@ -473,18 +516,17 @@ export class TTSEngine {
 		if (this.state !== "paused") return;
 
 		this.isPaused = false;
-		this.playSentence(this.currentSentenceIndex, this.sentencePauseOffset);
+		this.playSentence(this.currentSentenceIndex, this.sentencePauseOffset, this.playbackSessionEpoch);
 	}
 
 	public stop(): void {
+		this.playbackSessionEpoch++;
 		this.isStopped = true;
 		this.isPaused = false;
 		this.stopTimeTracking();
 
 		if (this.activeSourceNode) {
-			try {
-				this.activeSourceNode.stop();
-			} catch (_) {}
+			this.cleanupSourceNode(this.activeSourceNode);
 			this.activeSourceNode = null;
 		}
 
@@ -493,9 +535,13 @@ export class TTSEngine {
 		this.setState("stopped", "Stopped");
 	}
 
-	private finish(): void {
+	private finish(currentEpoch = this.playbackSessionEpoch): void {
+		if (this.playbackSessionEpoch !== currentEpoch) return;
 		this.stopTimeTracking();
-		this.activeSourceNode = null;
+		if (this.activeSourceNode) {
+			this.cleanupSourceNode(this.activeSourceNode);
+			this.activeSourceNode = null;
+		}
 		this.currentSentenceIndex = -1;
 		this.setState("idle", "Finished");
 		if (this.events.onComplete) {
