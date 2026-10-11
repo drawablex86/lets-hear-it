@@ -46,12 +46,12 @@ export class MySettingTab extends PluginSettingTab {
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
       {
-        name: "Voice",
-        desc: "Neural voice model selection.",
+        name: "Model",
+        desc: "Neural model selection.",
         control: {
           type: "dropdown",
-          key: "voice",
-          options: { af_heart: "Heart (US Female)", bm_george: "George (UK Male)" },
+          key: "model",
+          options: { default_model: "Default Model" },
         },
       },
     ];
@@ -62,43 +62,75 @@ export class MySettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     new Setting(containerEl)
-      .setName("Voice")
-      .setDesc("Neural voice model selection.")
-      .addDropdown((d) => d.setValue(this.plugin.settings.voice));
+      .setName("Model")
+      .setDesc("Neural model selection.")
+      .addDropdown((d) => d.setValue(this.plugin.settings.model));
   }
 }
 ```
 
-### B. DOM Construction: Use Obsidian Helpers
-- ❌ Do NOT use: `document.createElement("span")` (Triggers `obsidianmd/prefer-create-el`).
-- ✅ Use Obsidian's built-in helpers: `createSpan({ cls: "my-class" })`, `createDiv()`, or `containerEl.createEl("span")`.
+### B. Settings Headings & In-Place Updates
+- ❌ **Do NOT use HTML heading elements**: `containerEl.createEl("h2", { text: "My Section" })` triggers:
+  `For a consistent UI use new Setting(containerEl).setName(...).setHeading() instead of creating HTML heading elements directly.`
+- ❌ **Do NOT include "setting" or "option" in headings**: `setName("Model Settings").setHeading()` triggers:
+  `Avoid using "settings" in settings headings.` (Headings should be concise, e.g. `"Model Configuration"`, `"Speech & Voice"`, `"Storage & Cache"`).
+- ❌ **Do NOT recursively call `this.display()`**: `this.display()` is deprecated as of Obsidian 1.13.0. When toggling states or finishing downloads, update existing UI elements in-place:
+  ```typescript
+  // In-place UI update
+  statusSetting.setDesc("🟢 Ready");
+  btn.setButtonText("Verify");
+  ```
 
-### C. Popout Window Compatibility: Avoid `globalThis`
-- ❌ Do NOT use: `(globalThis as any).require`.
-- ✅ Use `window` or `activeWindow`:
+### C. Network Requests: Always Use `requestUrl`
+- ❌ **Do NOT use `fetch()`**: Native browser `fetch()` triggers:
+  `Unexpected use of 'fetch'. Use the built-in requestUrl function instead of fetch for network requests in Obsidian.`
+- ✅ **Use Obsidian's `requestUrl`**:
+  ```typescript
+  import { requestUrl } from "obsidian";
+
+  const response = await requestUrl({ url: "https://example.com/asset.wasm" });
+  if (response.status === 200) {
+    const bytes = new Uint8Array(response.arrayBuffer);
+    const text = response.text;
+  }
+  ```
+
+### D. Popout Window Compatibility: Avoid `globalThis`
+- ❌ **Do NOT use `globalThis`**: `globalThis.require` or `globalThis.process` triggers:
+  `Avoid using 'globalThis'. Use 'window' or 'activeWindow' for popout window compatibility.`
+- ✅ **Use `window` or `activeWindow`**:
   ```typescript
   if (typeof window !== "undefined" && typeof require !== "undefined") {
     (window as unknown as { require?: typeof require }).require = require;
   }
   ```
 
-### D. Clean Catch Blocks & Unused Variables
-- ❌ Do NOT leave empty catch blocks without comments (`catch (_) {}`).
-- ❌ Do NOT define unused error variables (`catch (firstError)`).
-- ✅ Use ES2019+ optional catch binding with comments:
+### E. Promise & Catch Block Hygiene
+- ❌ **Floating Promises**: Any asynchronous function called without `await` must be explicitly marked with `void`:
+  ```typescript
+  void this.processQueue(); // ✅ Explicitly ignored floating promise
+  ```
+- ❌ **Empty Catch Blocks**: Empty catch blocks (`catch {}` or `catch (_) {}`) trigger linter warnings:
   ```typescript
   try {
-    source.stop();
+    audioNode.stop();
   } catch {
-    // Safely ignore if audio node was already detached
+    // Expected: Audio node may already be detached or completed
   }
   ```
 
-### E. Console Logging
-- Remove all `console.log` statements in production code.
+### F. DOM Construction Helpers
+- ❌ Do NOT use: `document.createElement("span")` (Triggers `obsidianmd/prefer-create-el`).
+- ✅ Use Obsidian's built-in helpers: `createSpan({ cls: "my-class" })`, `createDiv()`, or `containerEl.createEl("span")`.
+
+### G. Clean Type Assertions
+- ❌ Avoid redundant type assertions that don't change the inferred expression type (e.g., asserting `as string` on a variable that `path.join()` already typed as `string`, or `as Buffer` on `fs.readFileSync()`).
+
+### H. Console Logging
+- Remove all debugging `console.log` statements in production builds.
 - Only leave actionable warnings or critical errors prefixed with the plugin name:
   ```typescript
-  console.warn("[my-plugin] Failed to initialize WebGPU:", err);
+  console.warn("[my-plugin] Failed to initialize hardware acceleration:", err);
   ```
 
 ---

@@ -112,11 +112,24 @@ This skill documents the exact architectural patterns, build transformations, an
 - **The Issue**: Obsidian's automated reviewer runs strict `npm ci` and static AST analyzers. Common failures include:
   1. **Lockfile Desync**: Bumping versions or overrides in `package.json` without running `npm install` causes `package-lock.json` desync and immediate CI failure.
   2. **Tag Format**: Using `v1.0.0` instead of `1.0.0` causes release detection failures.
-  3. **Punctuation in Names**: Using apostrophes or punctuation in `manifest.json` (`"name": "Let's Hear It"`) fails review.
-  4. **Declarative Settings Missing**: Not providing `getSettingDefinitions()` for Obsidian 1.13.0+ search indexing triggers review warnings.
-  5. **Direct Filesystem Access**: Using Node `fs` without a disclosure section in `README.md` triggers warnings.
-  6. **Scanner Result Caching**: Obsidian caches results per version string; re-tagging the same version will not re-scan. Use the **"Review branch"** button or bump the patch version.
+  3. **Punctuation in Names**: Using apostrophes or punctuation in `manifest.json` (`"name": "My Plugin"`) fails review.
+  4. **Settings Headings**: Creating HTML heading elements directly (`containerEl.createEl("h2")`) or using the words "setting" or "option" in heading names triggers review errors.
+  5. **Network Calls**: Using browser `fetch()` instead of Obsidian's `requestUrl()` triggers warnings.
+  6. **Declarative Settings Missing**: Not providing `getSettingDefinitions()` for Obsidian 1.13.0+ search indexing triggers review warnings.
+  7. **Direct Filesystem Access**: Using Node `fs` without a disclosure section in `README.md` triggers warnings.
+  8. **Scanner Result Caching**: Obsidian caches results per version string; re-tagging the same version will not re-scan. Use the **"Review branch"** button or bump the patch version.
 - **The Solution**: Follow the comprehensive [Obsidian Community Release Checklist](./references/obsidian-community-release-checklist.md) before publishing any release tag.
+
+---
+
+### Trap 8: Community Store 3-File Limitation & The In-Settings Downloader
+- **The Issue**: Obsidian's marketplace strictly distributes only 3 files: `main.js`, `manifest.json`, and `styles.css`. Local `.wasm`, `.mjs`, and neural weights are **never** distributed by the store. Falling back to public unpinned CDNs causes Emscripten signature mismatches and Node worker crashes.
+- **The Solution**: Build an **In-Settings Asset Downloader & First-Run Guard**:
+  1. Check if required runtime assets exist inside the plugin's vault directory (`<vault>/.obsidian/plugins/<plugin-id>/`).
+  2. If missing, present an in-settings download button and auto-prompt first-run users.
+  3. Use Obsidian's `requestUrl` to download matching, version-pinned binaries directly into the plugin directory.
+  4. Execute models 100% offline from local disk once downloaded.
+  *See [references/electron-sandbox-rules.md](./references/electron-sandbox-rules.md).*
 
 ---
 
@@ -124,7 +137,7 @@ This skill documents the exact architectural patterns, build transformations, an
 
 - [Obsidian Community Release Checklist](./references/obsidian-community-release-checklist.md) — Comprehensive guide to passing automated review audits.
 - [esbuild WASM Patching Guide](./references/esbuild-wasm-patching.md) — Exact AST/regex replacers for local WASM in Electron.
-- [Electron Sandbox Rules](./references/electron-sandbox-rules.md) — Permissions, renderer flags, Direct Filesystem disclosures, and CDN fallbacks.
+- [Electron Sandbox Rules](./references/electron-sandbox-rules.md) — Permissions, renderer flags, Direct Filesystem disclosures, and In-Settings Asset Downloaders.
 - [WebAudio Resampling & Audio Graph](./references/webaudio-resampling.md) — DAC synchronization and gapless playback.
 - [CSS Custom Highlight API](./references/css-highlight-api.md) — Zero-mutation text tracking implementation.
 - [esbuild.config.template.mjs](./examples/esbuild.config.template.mjs) — Complete boilerplate build script for Obsidian + ONNX plugins.

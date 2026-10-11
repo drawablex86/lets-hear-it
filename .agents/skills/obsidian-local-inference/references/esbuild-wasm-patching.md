@@ -96,8 +96,21 @@ if (fs.existsSync(mainJsPath)) {
   let mainJs = fs.readFileSync(mainJsPath, "utf8");
   const search = `(await import(r)).default`;
   const replacement = `(await (async (specifier) => {
-    if (typeof require === "function" && typeof specifier === "string") {
-      if (specifier.startsWith("file://")) {
+    if (typeof specifier === "string") {
+      // 1. Intercept bare Node.js built-ins that trigger browser import syntax errors in Electron
+      if (specifier === "worker_threads" || specifier === "node:worker_threads") {
+        const stub = "export default {}; export const workerData = undefined; export class Worker {}; export const parentPort = null; export const isMainThread = true;";
+        const base64 = typeof Buffer !== "undefined" ? Buffer.from(stub).toString("base64") : btoa(stub);
+        return import(\`data:text/javascript;base64,\${base64}\`);
+      }
+      if (specifier === "module" || specifier === "node:module") {
+        const stub = "export default {}; export const createRequire = () => () => ({});";
+        const base64 = typeof Buffer !== "undefined" ? Buffer.from(stub).toString("base64") : btoa(stub);
+        return import(\`data:text/javascript;base64,\${base64}\`);
+      }
+
+      // 2. Intercept local file:// URLs and convert to safe in-memory Data URLs
+      if (typeof require === "function" && specifier.startsWith("file://")) {
         const fs = require("fs");
         const filePath = decodeURIComponent(specifier.replace(/^file:\\/\\//, ""));
         if (fs.existsSync(filePath)) {
@@ -109,7 +122,7 @@ if (fs.existsSync(mainJsPath)) {
         try {
           const resp = await fetch(specifier);
           const buf = await resp.arrayBuffer();
-          const base64 = Buffer.from(buf).toString("base64");
+          const base64 = typeof Buffer !== "undefined" ? Buffer.from(buf).toString("base64") : btoa(String.fromCharCode(...new Uint8Array(buf)));
           return import(\`data:text/javascript;base64,\${base64}\`);
         } catch (e) {}
       }
@@ -120,7 +133,7 @@ if (fs.existsSync(mainJsPath)) {
   if (mainJs.includes(search)) {
     mainJs = mainJs.replaceAll(search, replacement);
   }
-
+}
   // Neutralize CDN wasmPaths override in transformers.js if present
   const cdnSearch = `!x.wasm.wasmPaths&&(x.wasm.wasmPaths=\`https://cdn.jsdelivr.net/npm/@huggingface/transformers@\${c.env.version}/dist/\`)`;
   if (mainJs.includes(cdnSearch)) {

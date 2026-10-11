@@ -91,27 +91,79 @@ const executionProviders = [
 
 ---
 
-## 4. Community Directory Distribution & CDN Fallback
+## 4. Community Directory Distribution & The In-Settings Asset Downloader Pattern
 
 Obsidian's official Community Plugin installer only downloads **three files**:
 - `main.js`
 - `manifest.json`
 - `styles.css`
 
-It does **not** copy `.wasm`, `.mjs`, or model asset weights when users install or update the plugin through Obsidian's settings UI.
+It does **not** distribute `.wasm`, `.mjs`, or neural model weights. Attempting to run unpinned remote CDNs causes Emscripten export signature mismatches (e.g. `_OrtGetInputOutputMetadata is not a function`), Node worker crashes (`Failed to resolve module specifier 'worker_threads'`), and repeated multi-megabyte network latency.
 
-**Required Architectural Pattern:**
-Always implement an automatic fallback to a pinned public CDN (e.g. jsDelivr) if the local `.wasm` files do not exist in the plugin directory:
+### The Battle-Tested Architecture: Local Asset Manager
+
+Implement an in-settings downloader and first-run guard using Obsidian's `requestUrl` API:
 
 ```typescript
-const wasmLocalFile = path.join(pluginDirPath, "ort-wasm-simd-threaded.jsep.wasm");
-if (fs.existsSync(wasmLocalFile)) {
-  // 1. Fast local execution from disk
-  ort.env.wasm.wasmBinary = new Uint8Array(fs.readFileSync(wasmLocalFile));
-} else {
-  // 2. Fresh Community Directory install fallback
-  const cdnFallback = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";
-  ort.env.wasm.wasmPaths = cdnFallback;
+import { Notice, requestUrl } from "obsidian";
+
+export class AssetManager {
+  private plugin: Plugin;
+
+  constructor(plugin: Plugin) {
+    this.plugin = plugin;
+  }
+
+  // 1. Resolve absolute plugin directory inside vault
+  getPluginDirectory(): string {
+    const adapter = this.plugin.app.vault.adapter as unknown as { getBasePath?: () => string };
+    const basePath = typeof adapter?.getBasePath === "function" ? adapter.getBasePath() : "";
+    return basePath ? `${basePath}/${this.plugin.manifest.dir}` : "";
+  }
+
+  // 2. Check if local binaries exist
+  checkStatus(): { isReady: boolean } {
+    const dir = this.getPluginDirectory();
+    const fs = require("fs");
+    const wasmPath = `${dir}/runtime.wasm`;
+    return { isReady: fs.existsSync(wasmPath) && fs.statSync(wasmPath).size > 1024 * 1024 };
+  }
+
+  // 3. Download matching assets directly into the plugin directory
+  async downloadAssets(onProgress?: (pct: number, msg: string) => void): Promise<boolean> {
+    const dir = this.getPluginDirectory();
+    const fs = require("fs");
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    const assets = [
+      { name: "runtime.wasm", url: "https://pinned-cdn.com/runtime.wasm", isBinary: true },
+      { name: "runtime.mjs", url: "https://pinned-cdn.com/runtime.mjs", isBinary: false },
+    ];
+
+    for (let i = 0; i < assets.length; i++) {
+      const asset = assets[i];
+      if (onProgress) onProgress(Math.floor((i / assets.length) * 100), `Downloading ${asset.name}`);
+
+      const resp = await requestUrl({ url: asset.url });
+      if (resp.status !== 200) throw new Error(`Download failed: HTTP ${resp.status}`);
+
+      const targetPath = `${dir}/${asset.name}`;
+      if (asset.isBinary) {
+        fs.writeFileSync(targetPath, new Uint8Array(resp.arrayBuffer));
+      } else {
+        // Sanitize Node imports from browser scripts before writing
+        let text = resp.text
+          .replace(/await\s+import\s*\(\s*["']worker_threads["']\s*\)/g, "{ workerData: undefined }")
+          .replace(/require\s*\(\s*["']worker_threads["']\s*\)/g, "{}");
+        fs.writeFileSync(targetPath, text, "utf8");
+      }
+    }
+    return true;
+  }
 }
 ```
-This guarantees zero crashes when newly installed from the Obsidian Community Marketplace.
+
+### Benefits:
+1. **100% Offline After Setup**: Models and runtimes execute locally from disk without network dependencies.
+2. **Zero Version Mismatches**: The downloaded binary always matches the JavaScript bindings bundled in `main.js`.
+3. **Store Compliant**: Complies strictly with Obsidian review rules by using `requestUrl` and keeping files inside the plugin's vault directory.
