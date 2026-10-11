@@ -1,6 +1,6 @@
 {
   "id": "lets-hear-it",
-  "name": "let's hear it",
+  "name": "Lets Hear It",
   "version": "1.0.1",
   "minAppVersion": "1.0.0",
   "description": "Fast, private local neural text-to-speech for English notes with live word tracking and MP3 audio export.",
