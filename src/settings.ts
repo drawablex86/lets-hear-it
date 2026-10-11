@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, SettingDefinitionItem } from "obsidian";
 import type LetsHearItPlugin from "./main";
 
 export interface LetsHearItSettings {
@@ -69,6 +69,58 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 	constructor(app: App, plugin: LetsHearItPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		const voiceOptions: Record<string, string> = {};
+		for (const v of KOKORO_VOICES) {
+			voiceOptions[v.id] = `${v.name} (${v.accent} ${v.gender})`;
+		}
+
+		return [
+			{
+				name: "Voice",
+				desc: "Choose your preferred neural speech voice. Kokoro includes 28 natural voices.",
+				control: {
+					type: "dropdown",
+					key: "voice",
+					options: voiceOptions,
+				},
+			},
+			{
+				name: "Default playback speed",
+				desc: "Default speed rate for speech synthesis.",
+				control: {
+					type: "dropdown",
+					key: "playbackSpeed",
+					options: {
+						"0.75": "0.75x",
+						"1": "1.0x (Normal)",
+						"1.25": "1.25x",
+						"1.5": "1.5x",
+						"1.75": "1.75x",
+						"2": "2.0x",
+					},
+				},
+			},
+			{
+				name: "Auto-scroll during playback",
+				desc: "Smoothly centers the current sentence in the viewport when it nears the top or bottom edges.",
+				control: {
+					type: "toggle",
+					key: "autoScroll",
+				},
+			},
+			{
+				name: "Audio export folder",
+				desc: "The vault folder path where generated MP3 files will be saved. Leave empty to save directly to the root of the vault.",
+				control: {
+					type: "text",
+					key: "exportFolder",
+					placeholder: "e.g. Audio/Recordings (leave blank for vault root)",
+				},
+			},
+		];
 	}
 
 	display(): void {

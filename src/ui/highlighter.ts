@@ -369,7 +369,7 @@ export class WordHighlighter {
 			range.setStart(startNode, startOffset);
 			range.setEnd(endNode, endOffset);
 			return range;
-		} catch (_) {
+		} catch {
 			return null;
 		}
 	}
@@ -403,7 +403,9 @@ export class WordHighlighter {
 					parentEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
 				}
 			}
-		} catch (_) {}
+		} catch {
+			// Safely ignore if range container is detached from active viewport DOM
+		}
 	}
 
 	/**
@@ -421,14 +423,13 @@ export class WordHighlighter {
 			}
 		}
 
-		// Fallback: DOM Span Highlight
+		// Fallback: DOM Span Highlight using Obsidian helper
 		this.removeFallbackSpan();
 		try {
-			const span = document.createElement("span");
-			span.className = "lets-hear-it-active-word";
+			const span = createSpan({ cls: "lets-hear-it-active-word" });
 			range.surroundContents(span);
 			this.fallbackSpanEl = span;
-		} catch (_) {
+		} catch {
 			// Safely ignore if range crosses node boundaries
 		}
 	}
@@ -453,7 +454,9 @@ export class WordHighlighter {
 		if (this.isCssHighlightSupported()) {
 			try {
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HIGHLIGHT_NAME);
-			} catch (_) {}
+			} catch {
+				// Safely ignore if highlight registration was already cleared
+			}
 		}
 
 		this.removeFallbackSpan();

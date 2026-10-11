@@ -56,14 +56,14 @@ export class TTSEngine {
 		// Ensure caches object exists on window to prevent Kokoro voice downloader ReferenceErrors
 		try {
 			if (typeof window !== "undefined") {
-				const win = window as any;
+				const win = window as unknown as { caches?: CacheStorage };
 				if (!win.caches || typeof win.caches.open !== "function") {
 					win.caches = {
 						open: async () => ({
 							match: async () => undefined,
 							put: async () => {},
-						}),
-					};
+						} as unknown as Cache),
+					} as unknown as CacheStorage;
 				}
 			}
 		} catch {
@@ -135,11 +135,11 @@ export class TTSEngine {
 				rawDir = rawDir.slice(0, -1);
 			}
 
-			const win = typeof window !== "undefined" ? (window as unknown as { require?: (mod: string) => Record<string, any> }) : undefined;
+			const win = typeof window !== "undefined" ? (window as unknown as { require?: (mod: string) => Record<string, unknown> }) : undefined;
 			const req = win?.require;
 			if (req) {
-				const fs = req("fs");
-				const path = req("path");
+				const fs = req("fs") as { existsSync: (p: string) => boolean; readFileSync: (p: string) => Buffer };
+				const path = req("path") as { join: (...args: string[]) => string };
 
 				const wasmFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.wasm") as string;
 				const mjsFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.mjs") as string;
@@ -189,7 +189,6 @@ export class TTSEngine {
 			if (kokoroEnv) {
 				kokoroEnv.wasmPaths = cdnFallback;
 			}
-			console.log("[let's hear it] Configured CDN fallback for ONNX Runtime WebAssembly:", cdnFallback);
 		} catch (err) {
 			console.warn("[let's hear it] Failed to set custom ort wasm path:", err);
 		}
@@ -251,7 +250,7 @@ export class TTSEngine {
 					device,
 					progress_callback: progressCallback,
 				});
-			} catch (firstError) {
+			} catch {
 				if (device === "webgpu") {
 					try {
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
@@ -293,7 +292,7 @@ export class TTSEngine {
 	public async synthesizeSentence(text: string, sentenceIndex: number): Promise<SentenceAudioItem> {
 		const model = await this.initModel();
 		const rawAudio = await model.generate(text, {
-			voice: this.voice as any,
+			voice: this.voice as unknown as NonNullable<Parameters<typeof model.generate>[1]>["voice"],
 			speed: 1.0, // Base audio generated at normal speed; speed scaling handled in WebAudio node
 		});
 
@@ -378,7 +377,7 @@ export class TTSEngine {
 			}
 
 			const rawAudio = await model.generate(chunkText, {
-				voice: voice as any,
+				voice: voice as unknown as NonNullable<Parameters<typeof model.generate>[1]>["voice"],
 				speed: 1.0,
 			});
 
@@ -588,7 +587,9 @@ export class TTSEngine {
 		try {
 			source.stop();
 			source.disconnect();
-		} catch (_) {}
+		} catch {
+			// Safely ignore if source node was already stopped or disconnected
+		}
 	}
 
 	public pause(): void {
