@@ -166,7 +166,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 				});
 		});
 
-		new Setting(containerEl).setName("Speech Settings").setHeading();
+		new Setting(containerEl).setName("Speech & Voice").setHeading();
 
 		// Voice Selector
 		new Setting(containerEl)
