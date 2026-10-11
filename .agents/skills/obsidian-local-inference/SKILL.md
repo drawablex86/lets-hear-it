@@ -54,15 +54,15 @@ This skill documents the exact architectural patterns, build transformations, an
 
 ### Trap 3: Node CLI vs. Browser Environment Confusion
 - **The Issue**: In Obsidian's Electron environment, `process` exists, but `process.type` might not be set to `"renderer"` at module initialization. Libraries like `transformers.js` or `onnxruntime` might assume they are running in a headless Node CLI and attempt to spawn worker threads or load native Node addons, throwing syntax errors.
-- **The Solution**: In your plugin's `onload()` method, explicitly configure environment flags and expose `require` before loading any neural libraries:
+- **The Solution**: In your plugin's `onload()` method, explicitly configure environment flags and expose `require` on `window` (avoiding `globalThis` to pass Obsidian's ESLint rules) before loading any neural libraries:
   ```typescript
   async onload() {
-    if (typeof process !== "undefined" && !process.type) {
-      process.type = "renderer";
+    const electronProc = typeof process !== "undefined" ? (process as unknown as { type?: string }) : undefined;
+    if (electronProc && !electronProc.type) {
+      electronProc.type = "renderer";
     }
     if (typeof window !== "undefined" && typeof require !== "undefined") {
-      (window as any).require = require;
-      (globalThis as any).require = require;
+      (window as unknown as { require?: typeof require }).require = require;
     }
     // Now initialize ONNX or local models...
   }
@@ -108,10 +108,23 @@ This skill documents the exact architectural patterns, build transformations, an
 
 ---
 
+### Trap 7: Obsidian Community Review Bot & Lockfile Failures
+- **The Issue**: Obsidian's automated reviewer runs strict `npm ci` and static AST analyzers. Common failures include:
+  1. **Lockfile Desync**: Bumping versions or overrides in `package.json` without running `npm install` causes `package-lock.json` desync and immediate CI failure.
+  2. **Tag Format**: Using `v1.0.0` instead of `1.0.0` causes release detection failures.
+  3. **Punctuation in Names**: Using apostrophes or punctuation in `manifest.json` (`"name": "Let's Hear It"`) fails review.
+  4. **Declarative Settings Missing**: Not providing `getSettingDefinitions()` for Obsidian 1.13.0+ search indexing triggers review warnings.
+  5. **Direct Filesystem Access**: Using Node `fs` without a disclosure section in `README.md` triggers warnings.
+  6. **Scanner Result Caching**: Obsidian caches results per version string; re-tagging the same version will not re-scan. Use the **"Review branch"** button or bump the patch version.
+- **The Solution**: Follow the comprehensive [Obsidian Community Release Checklist](./references/obsidian-community-release-checklist.md) before publishing any release tag.
+
+---
+
 ## 📁 Skill Reference Index
 
+- [Obsidian Community Release Checklist](./references/obsidian-community-release-checklist.md) — Comprehensive guide to passing automated review audits.
 - [esbuild WASM Patching Guide](./references/esbuild-wasm-patching.md) — Exact AST/regex replacers for local WASM in Electron.
-- [Electron Sandbox Rules](./references/electron-sandbox-rules.md) — Permissions, renderer flags, and file protocol workarounds.
+- [Electron Sandbox Rules](./references/electron-sandbox-rules.md) — Permissions, renderer flags, Direct Filesystem disclosures, and CDN fallbacks.
 - [WebAudio Resampling & Audio Graph](./references/webaudio-resampling.md) — DAC synchronization and gapless playback.
 - [CSS Custom Highlight API](./references/css-highlight-api.md) — Zero-mutation text tracking implementation.
 - [esbuild.config.template.mjs](./examples/esbuild.config.template.mjs) — Complete boilerplate build script for Obsidian + ONNX plugins.

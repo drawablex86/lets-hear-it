@@ -17,17 +17,22 @@ Many JavaScript AI libraries (Transformers.js, ONNX Runtime Web, TensorFlow.js) 
 ```typescript
 // src/main.ts
 async onload() {
-  if (typeof process !== "undefined" && !process.type) {
-    process.type = "renderer";
+  const electronProc = typeof process !== "undefined" ? (process as unknown as { type?: string }) : undefined;
+  if (electronProc && !electronProc.type) {
+    electronProc.type = "renderer";
   }
 
-  // Ensure require is available globally for Emscripten glue scripts
+  // Ensure require is available on window for Emscripten glue scripts (avoid globalThis to pass Obsidian ESLint)
   if (typeof window !== "undefined" && typeof require !== "undefined") {
-    (window as any).require = require;
-    (globalThis as any).require = require;
+    (window as unknown as { require?: typeof require }).require = require;
   }
 }
 ```
+
+> [!IMPORTANT] Direct Filesystem Access Disclosure Required in README.md
+> If your plugin accesses Node's `fs` or `path` modules outside the Obsidian Vault API (`app.vault`), Obsidian's review bot will flag:
+> `Direct Filesystem Access: Uses the Node.js fs module to access the filesystem outside of the Obsidian vault API.`
+> To pass automated & human review, you MUST include a dedicated section in `README.md` (e.g. under **Network & Privacy Disclosures**) explaining exactly why direct filesystem access is used (e.g., loading local in-memory WASM runtimes from the plugin directory without cloud roundtrips).
 
 ---
 
@@ -83,3 +88,30 @@ const executionProviders = [
   { name: "wasm", numThreads: 4, simd: true }
 ];
 ```
+
+---
+
+## 4. Community Directory Distribution & CDN Fallback
+
+Obsidian's official Community Plugin installer only downloads **three files**:
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+It does **not** copy `.wasm`, `.mjs`, or model asset weights when users install or update the plugin through Obsidian's settings UI.
+
+**Required Architectural Pattern:**
+Always implement an automatic fallback to a pinned public CDN (e.g. jsDelivr) if the local `.wasm` files do not exist in the plugin directory:
+
+```typescript
+const wasmLocalFile = path.join(pluginDirPath, "ort-wasm-simd-threaded.jsep.wasm");
+if (fs.existsSync(wasmLocalFile)) {
+  // 1. Fast local execution from disk
+  ort.env.wasm.wasmBinary = new Uint8Array(fs.readFileSync(wasmLocalFile));
+} else {
+  // 2. Fresh Community Directory install fallback
+  const cdnFallback = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";
+  ort.env.wasm.wasmPaths = cdnFallback;
+}
+```
+This guarantees zero crashes when newly installed from the Obsidian Community Marketplace.
