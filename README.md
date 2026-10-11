@@ -121,7 +121,7 @@ node test-obsidian-simulator.mjs
 ### Installation
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-username/lets-hear-it.git
+git clone https://github.com/drawablex86/lets-hear-it.git
 cd lets-hear-it
 
 # 2. Install dependencies
