@@ -16,7 +16,7 @@
     "webgpu",
     "onnx"
   ],
-  "author": "Antigravity",
+  "author": "Rahul Rajeev",
   "license": "MIT",
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",

@@ -160,7 +160,7 @@ const copyWasmPlugin = {
 					}
 				}
 
-				// Optionally sync to live vault if OBSIDIAN_VAULT_PATH is specified or local directory exists
+				// Optionally sync unsuppressed files to live test vault
 				const customVaultPath = process.env.OBSIDIAN_VAULT_PATH;
 				const vaultPluginPaths = [
 					customVaultPath,
@@ -168,20 +168,58 @@ const copyWasmPlugin = {
 					"/Users/rahulrajeev/Downloads/lattice field/.obsidian/plugins/lets-hear-it"
 				].filter(Boolean);
 
+				const rootFilesToSync = ["main.js", "manifest.json", "styles.css"];
 				for (const vaultDir of vaultPluginPaths) {
 					try {
 						if (fs.existsSync(vaultDir)) {
-							const v0Files = fs.readdirSync(v0Dir);
-							for (const f of v0Files) {
-								try {
-									fs.copyFileSync(path.join(v0Dir, f), path.join(vaultDir, f));
-								} catch (copyErr) {
-									// Silently skip if file is locked by running Obsidian process or isolated sandbox
+							for (const sf of rootFilesToSync) {
+								if (fs.existsSync(path.resolve(sf))) {
+									try {
+										fs.copyFileSync(path.resolve(sf), path.join(vaultDir, sf));
+									} catch (_) {}
+								}
+							}
+							if (fs.existsSync(ortDistPath)) {
+								for (const f of fs.readdirSync(ortDistPath)) {
+									if (fs.existsSync(path.resolve(f))) {
+										try {
+											fs.copyFileSync(path.resolve(f), path.join(vaultDir, f));
+										} catch (_) {}
+									}
 								}
 							}
 							console.log(`[copy-wasm-plugin] Synced files to live vault: ${vaultDir}`);
 						}
 					} catch (_) {}
+				}
+
+				// Apply release-specific warning suppressions ONLY to the v0 release folder
+				if (fs.existsSync(v0Dir)) {
+					// 1. Silence harmless content-length warning in v0/main.js
+					const v0MainPath = path.join(v0Dir, "main.js");
+					if (fs.existsSync(v0MainPath)) {
+						let v0Main = fs.readFileSync(v0MainPath, "utf8");
+						const warnSearch = `X===null&&console.warn("Unable to determine content-length from response headers. Will expand buffer when needed.");`;
+						if (v0Main.includes(warnSearch)) {
+							v0Main = v0Main.replace(warnSearch, `/* release: content-length warning silenced */`);
+							fs.writeFileSync(v0MainPath, v0Main, "utf8");
+							console.log("[copy-wasm-plugin] [v0 release] Suppressed content-length warning in v0/main.js");
+						}
+					}
+
+					// 2. Filter internal ONNX runtime stderr warnings ([W:onnxruntime:) in v0 .mjs runners
+					const v0MjsFiles = fs.readdirSync(v0Dir).filter(f => f.endsWith(".mjs"));
+					for (const mjsFile of v0MjsFiles) {
+						const mjsPath = path.join(v0Dir, mjsFile);
+						let mjsContent = fs.readFileSync(mjsPath, "utf8");
+						const paDef = "pa=console.error.bind(console);";
+						const paFiltered = `pa=((_origErr)=>(..._args)=>{if(typeof _args[0]==="string"&&_args[0].includes("[W:onnxruntime:"))return;_origErr(..._args)})(console.error.bind(console));`;
+						if (mjsContent.includes(paDef)) {
+							mjsContent = mjsContent.replaceAll(paDef, paFiltered);
+							fs.writeFileSync(mjsPath, mjsContent, "utf8");
+							console.log(`[copy-wasm-plugin] [v0 release] Filtered ORT stderr warnings in v0/${mjsFile}`);
+						}
+					}
 				}
 			} catch (err) {
 				console.warn("[copy-wasm-plugin] Note:", err?.message || err);
