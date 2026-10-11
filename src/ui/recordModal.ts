@@ -38,12 +38,12 @@ export class ExportMp3Modal extends Modal {
 
 		// Note Summary Card
 		const noteSummary = contentEl.createDiv({ cls: "lets-hear-it-modal-summary" });
-		noteSummary.createEl("div", {
+		noteSummary.createDiv({
 			cls: "lets-hear-it-modal-filename",
 			text: `📄 Note: ${this.targetFile.basename}`,
 		});
 		const speechBatches = TTSEngine.groupSentencesIntoSpeechChunks(this.sentences, 380);
-		noteSummary.createEl("div", {
+		noteSummary.createDiv({
 			cls: "lets-hear-it-modal-sentence-count",
 			text: `Found ${this.sentences.length} sentences (optimized into ${speechBatches.length} speech batches for fast generation)`,
 		});
@@ -53,7 +53,7 @@ export class ExportMp3Modal extends Modal {
 			? this.plugin.settings.exportFolder.replace(/^\/+|\/+$/g, "")
 			: "(vault root)";
 		const destPathPreview = `${destFolder}/${this.targetFile.basename}.mp3`;
-		noteSummary.createEl("div", {
+		noteSummary.createDiv({
 			cls: "lets-hear-it-modal-dest",
 			text: `Output destination: ${destPathPreview}`,
 		});
@@ -108,8 +108,8 @@ export class ExportMp3Modal extends Modal {
 			text: "Generate MP3",
 			cls: "mod-cta",
 		});
-		this.generateBtn.addEventListener("click", async () => {
-			await this.startGeneration(progressContainer);
+		this.generateBtn.addEventListener("click", () => {
+			void this.startGeneration(progressContainer);
 		});
 	}
 

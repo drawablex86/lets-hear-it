@@ -507,7 +507,7 @@ export class TTSEngine {
 		this.setState("buffering", `Preparing sentence ${index + 1}/${this.sentencesQueue.length}...`);
 
 		// Trigger strict 2-sentence sequential pre-fetch in background
-		this.prefetchUpcomingSentences(index, currentEpoch);
+		void this.prefetchUpcomingSentences(index, currentEpoch);
 
 		try {
 			const item = await this.getSentenceAudioPromise(index);
@@ -615,7 +615,7 @@ export class TTSEngine {
 		if (this.state !== "paused") return;
 
 		this.isPaused = false;
-		this.playSentence(this.currentSentenceIndex, this.sentencePauseOffset, this.playbackSessionEpoch);
+		void this.playSentence(this.currentSentenceIndex, this.sentencePauseOffset, this.playbackSessionEpoch);
 	}
 
 	public stop(): void {

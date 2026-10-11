@@ -102,7 +102,9 @@ export default class LetsHearItPlugin extends Plugin {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (activeView) {
 					if (!checking) {
-						this.ensureAudioContext().then(() => this.readCurrentNote());
+						void this.ensureAudioContext()
+							.then(() => this.readCurrentNote())
+							.catch((err) => console.error("[let's hear it] Failed to start audio:", err));
 					}
 					return true;
 				}
@@ -240,15 +242,15 @@ export default class LetsHearItPlugin extends Plugin {
 				onClose: () => {
 					this.highlighter?.clearHighlight();
 				},
-				onVoiceChange: async (voice: string) => {
+				onVoiceChange: (voice: string) => {
 					this.settings.voice = voice;
-					await this.saveSettings();
+					void this.saveSettings();
 				},
-				onPlay: async () => {
-					await this.readCurrentNote();
+				onPlay: () => {
+					void this.readCurrentNote();
 				},
-				onToggleHearingMode: async () => {
-					await this.toggleHearingMode();
+				onToggleHearingMode: () => {
+					void this.toggleHearingMode();
 				},
 			});
 		}

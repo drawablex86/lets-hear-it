@@ -124,8 +124,8 @@ export class WordHighlighter {
 		const containerEl = this.activeView.containerEl;
 		if (!containerEl) return;
 
-		const readingView = containerEl.querySelector(".markdown-reading-view") as HTMLElement | null;
-		const editorView = containerEl.querySelector(".cm-content") as HTMLElement | null;
+		const readingView = containerEl.querySelector<HTMLElement>(".markdown-reading-view");
+		const editorView = containerEl.querySelector<HTMLElement>(".cm-content");
 
 		let searchRoot: HTMLElement | null = null;
 		if (readingView && readingView.offsetParent !== null) {
