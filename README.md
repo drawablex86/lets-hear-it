@@ -135,5 +135,13 @@ npm run build
 
 ---
 
+## Network & Privacy Disclosure
+
+In compliance with the **Obsidian Developer Policies**:
+- **Offline-First & Privacy**: This plugin does not collect telemetry, track analytics, or connect to remote servers during reading sessions.
+- **Initial Model Asset Fetch**: To avoid bloating the vault download size, the quantized Kokoro ONNX model weights (`kokoro-v1.0.onnx`, ~80MB) and voice embedding vectors are automatically fetched on first use from HuggingFace (`https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX`) and cached in the local IndexedDB/cache directory. Once cached, all synthesis runs 100% locally offline.
+
+---
+
 ## License
 MIT License.

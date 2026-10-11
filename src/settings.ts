@@ -75,8 +75,6 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "let's hear it — Text to Speech Settings" });
-
 		// Voice Selector
 		new Setting(containerEl)
 			.setName("Voice")
@@ -95,7 +93,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 
 		// Default Playback Speed
 		new Setting(containerEl)
-			.setName("Default Playback Speed")
+			.setName("Default playback speed")
 			.setDesc("Default speed rate for speech synthesis.")
 			.addDropdown((dropdown) => {
 				const speeds = ["0.75", "1.0", "1.25", "1.5", "1.75", "2.0"];
@@ -113,7 +111,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 
 		// Hearing Mode Setting
 		new Setting(containerEl)
-			.setName("Auto-switch to Hearing Mode (Reading View)")
+			.setName("Auto-switch to hearing mode (reading view)")
 			.setDesc("Automatically switches the active note to Reading View during playback for distraction-free listening and rock-solid highlight tracking.")
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.hearingModeOnPlay);
