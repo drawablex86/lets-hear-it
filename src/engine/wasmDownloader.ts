@@ -1,4 +1,4 @@
-import { Notice } from "obsidian";
+import { Notice, requestUrl } from "obsidian";
 import type LetsHearItPlugin from "../main";
 
 export interface WasmAssetStatus {
@@ -199,8 +199,8 @@ export class WasmAssetManager {
 				}
 
 				try {
-					const resp = await fetch(asset.url);
-					if (!resp.ok) {
+					const resp = await requestUrl({ url: asset.url });
+					if (resp.status !== 200) {
 						if (asset.required) {
 							throw new Error(`Failed to download ${asset.filename}: HTTP ${resp.status}`);
 						}
@@ -208,12 +208,10 @@ export class WasmAssetManager {
 					}
 
 					if (asset.sanitize) {
-						let text = await resp.text();
-						text = this.sanitizeMjsContent(text);
+						const text = this.sanitizeMjsContent(resp.text);
 						fs.writeFileSync(targetPath, text, "utf8");
 					} else {
-						const arrayBuf = await resp.arrayBuffer();
-						fs.writeFileSync(targetPath, new Uint8Array(arrayBuf));
+						fs.writeFileSync(targetPath, new Uint8Array(resp.arrayBuffer));
 					}
 				} catch (downloadErr) {
 					if (asset.required) {

@@ -36,7 +36,9 @@ export default class LetsHearItPlugin extends Plugin {
 								configurable: true,
 								enumerable: true,
 							});
-						} catch {}
+						} catch {
+							// Ignore if property is frozen
+						}
 					}
 				}
 			}
@@ -45,8 +47,9 @@ export default class LetsHearItPlugin extends Plugin {
 		if (typeof process !== "undefined") {
 			setRendererFlag(process);
 		}
-		if (typeof globalThis !== "undefined" && (globalThis as unknown as { process?: unknown }).process) {
-			setRendererFlag((globalThis as unknown as { process?: unknown }).process);
+		const win = typeof window !== "undefined" ? (window as unknown as { process?: unknown }) : undefined;
+		if (win?.process) {
+			setRendererFlag(win.process);
 		}
 
 		// Expose require on window so in-memory modules can access Node fs

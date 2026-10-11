@@ -128,7 +128,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		// Local Speech Engine Setup Section
-		containerEl.createEl("h2", { text: "Local Speech Engine Setup" });
+		new Setting(containerEl).setName("Local Speech Engine Setup").setHeading();
 
 		const status = this.plugin.wasmAssetManager.checkStatus();
 		const mbSize = (status.wasmSize / (1024 * 1024)).toFixed(1);
@@ -154,7 +154,11 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 
 					btn.setDisabled(false);
 					if (success) {
-						this.display(); // Refresh settings tab
+						const updatedStatus = this.plugin.wasmAssetManager.checkStatus();
+						const updatedMb = (updatedStatus.wasmSize / (1024 * 1024)).toFixed(1);
+						engineSetting.setDesc(`🟢 Ready for offline neural synthesis (${updatedMb} MB local engine installed).`);
+						btn.setButtonText("Re-download / Verify Engine");
+						btn.setCta(false);
 					} else {
 						engineSetting.setDesc(originalDesc);
 						btn.setButtonText("Retry Download");
@@ -162,7 +166,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 				});
 		});
 
-		containerEl.createEl("h2", { text: "Speech Settings" });
+		new Setting(containerEl).setName("Speech Settings").setHeading();
 
 		// Voice Selector
 		new Setting(containerEl)

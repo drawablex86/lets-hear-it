@@ -141,11 +141,11 @@ export class TTSEngine {
 				const fs = req("fs") as { existsSync: (p: string) => boolean; readFileSync: (p: string) => Buffer };
 				const path = req("path") as { join: (...args: string[]) => string };
 
-				const wasmFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.wasm") as string;
-				const mjsFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.mjs") as string;
+				const wasmFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.wasm");
+				const mjsFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.mjs");
 
 				if (fs.existsSync(wasmFile)) {
-					const wasmBuf = fs.readFileSync(wasmFile) as Buffer;
+					const wasmBuf = fs.readFileSync(wasmFile);
 					const wasmBytes = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
 					const wasmBlob = new Blob([wasmBytes as unknown as BlobPart], { type: "application/wasm" });
 					const wasmBlobUrl = URL.createObjectURL(wasmBlob);
@@ -158,7 +158,7 @@ export class TTSEngine {
 							ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
 
 							if (fs.existsSync(mjsFile)) {
-								const mjsBuf = fs.readFileSync(mjsFile) as Buffer;
+								const mjsBuf = fs.readFileSync(mjsFile);
 								const mjsBase64 = Buffer.from(mjsBuf).toString("base64");
 								const mjsDataUrl = `data:text/javascript;base64,${mjsBase64}`;
 
@@ -297,7 +297,7 @@ export class TTSEngine {
 		});
 
 		const sampleRate = rawAudio.sampling_rate || 24000;
-		const float32Data = rawAudio.audio as Float32Array; // Float32Array PCM
+		const float32Data = rawAudio.audio; // Float32Array PCM
 
 		const audioBuffer = this.audioContext.createBuffer(1, float32Data.length, sampleRate);
 		audioBuffer.copyToChannel(float32Data as unknown as Float32Array<ArrayBuffer>, 0);
@@ -537,7 +537,7 @@ export class TTSEngine {
 							this.events.onSentenceEnd(index);
 						}
 						// Advance to next sentence
-						this.playSentence(index + 1, 0, currentEpoch);
+						void this.playSentence(index + 1, 0, currentEpoch);
 					}
 				}
 			};
