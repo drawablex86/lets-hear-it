@@ -20,14 +20,14 @@ export default class LetsHearItPlugin extends Plugin {
 		await this.loadSettings();
 
 		// Ensure Electron renderer flag is set so onnxruntime doesn't treat context as Node CLI
-		if (typeof process !== "undefined" && !process.type) {
-			process.type = "renderer";
+		const electronProc = typeof process !== "undefined" ? (process as unknown as { type?: string }) : undefined;
+		if (electronProc && !electronProc.type) {
+			electronProc.type = "renderer";
 		}
 
-		// Expose require globally so any module or blob can use Node fs
+		// Expose require on window so in-memory modules can access Node fs
 		if (typeof window !== "undefined" && typeof require !== "undefined") {
-			(window as any).require = require;
-			(globalThis as any).require = require;
+			(window as unknown as { require?: typeof require }).require = require;
 		}
 
 		// 1. Configure ONNX WASM asset directory path for Electron sandbox
@@ -167,9 +167,9 @@ export default class LetsHearItPlugin extends Plugin {
 	 */
 	private configureWasmDirectory() {
 		try {
-			const adapter = this.app?.vault?.adapter as any;
+			const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
 			let basePath = "";
-			if (adapter && typeof adapter.getBasePath === "function") {
+			if (typeof adapter?.getBasePath === "function") {
 				basePath = adapter.getBasePath();
 			} else if (typeof process !== "undefined" && typeof process.cwd === "function") {
 				basePath = process.cwd();
@@ -397,7 +397,8 @@ export default class LetsHearItPlugin extends Plugin {
 	}
 
 	public async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const loaded = (await this.loadData()) as Partial<LetsHearItSettings> | null;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
 	}
 
 	public async saveSettings(): Promise<void> {

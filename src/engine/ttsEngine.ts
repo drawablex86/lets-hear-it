@@ -135,28 +135,30 @@ export class TTSEngine {
 				rawDir = rawDir.slice(0, -1);
 			}
 
-			const req = (globalThis as any).require || (window as any).require;
+			const win = typeof window !== "undefined" ? (window as unknown as { require?: (mod: string) => Record<string, any> }) : undefined;
+			const req = win?.require;
 			if (req) {
 				const fs = req("fs");
 				const path = req("path");
 
-				const wasmFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.wasm");
-				const mjsFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.mjs");
+				const wasmFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.wasm") as string;
+				const mjsFile = path.join(rawDir, "ort-wasm-simd-threaded.jsep.mjs") as string;
 
 				if (fs.existsSync(wasmFile)) {
-					const wasmBuf = fs.readFileSync(wasmFile);
-					const wasmBlob = new Blob([wasmBuf], { type: "application/wasm" });
+					const wasmBuf = fs.readFileSync(wasmFile) as Buffer;
+					const wasmBytes = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
+					const wasmBlob = new Blob([wasmBytes as unknown as BlobPart], { type: "application/wasm" });
 					const wasmBlobUrl = URL.createObjectURL(wasmBlob);
 
 					// Provide raw Uint8Array directly into memory
-					if (ort && ort.env) {
+					if (ort?.env) {
 						ort.env.logLevel = "error";
 						if (ort.env.wasm) {
 							ort.env.wasm.wasmBinary = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
 							ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
 
 							if (fs.existsSync(mjsFile)) {
-								const mjsBuf = fs.readFileSync(mjsFile);
+								const mjsBuf = fs.readFileSync(mjsFile) as Buffer;
 								const mjsBase64 = Buffer.from(mjsBuf).toString("base64");
 								const mjsDataUrl = `data:text/javascript;base64,${mjsBase64}`;
 
@@ -170,10 +172,9 @@ export class TTSEngine {
 						}
 					}
 
-					if (kokoroEnv) {
-						kokoroEnv.wasmPaths = (ort?.env?.wasm?.wasmPaths as any);
+					if (kokoroEnv && ort?.env?.wasm?.wasmPaths) {
+						kokoroEnv.wasmPaths = ort.env.wasm.wasmPaths;
 					}
-					console.log("[let's hear it] Successfully configured in-memory wasmBinary and Data URLs!");
 					return;
 				}
 			}
@@ -245,34 +246,29 @@ export class TTSEngine {
 			}
 
 			try {
-				console.log(`[let's hear it] Initializing KokoroTTS with device: ${device}, dtype: ${dtype}`);
 				this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
 					dtype,
 					device,
 					progress_callback: progressCallback,
 				});
 			} catch (firstError) {
-				console.warn(`[let's hear it] Failed to initialize with ${device} (${dtype}):`, firstError);
 				if (device === "webgpu") {
-					console.log(`[let's hear it] Retrying with device: wasm, dtype: ${dtype}`);
 					try {
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
 							dtype,
 							device: "wasm",
 							progress_callback: progressCallback,
 						});
-					} catch (secondError) {
-						console.warn(`[let's hear it] Retrying with device: wasm, dtype: q8 due to:`, secondError);
+					} catch {
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-							dtype: "q8" as any,
+							dtype: "q8",
 							device: "wasm",
 							progress_callback: progressCallback,
 						});
 					}
 				} else {
-					console.log(`[let's hear it] Retrying with device: wasm, dtype: q8`);
 					this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-						dtype: "q8" as any,
+						dtype: "q8",
 						device: "wasm",
 						progress_callback: progressCallback,
 					});
@@ -302,10 +298,10 @@ export class TTSEngine {
 		});
 
 		const sampleRate = rawAudio.sampling_rate || 24000;
-		const float32Data = rawAudio.audio; // Float32Array PCM
+		const float32Data = rawAudio.audio as Float32Array; // Float32Array PCM
 
 		const audioBuffer = this.audioContext.createBuffer(1, float32Data.length, sampleRate);
-		audioBuffer.copyToChannel(float32Data, 0);
+		audioBuffer.copyToChannel(float32Data as unknown as Float32Array<ArrayBuffer>, 0);
 
 		const duration = audioBuffer.duration;
 

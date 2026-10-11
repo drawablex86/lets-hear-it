@@ -1,6 +1,6 @@
 {
   "name": "lets-hear-it",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Zero-setup local neural text-to-speech for English notes with live word tracking and MP3 export for Obsidian",
   "main": "main.js",
   "scripts": {
@@ -22,6 +22,9 @@
     "@breezystack/lamejs": "^1.2.7",
     "kokoro-js": "^1.1.2",
     "onnxruntime-web": "^1.21.0"
+  },
+  "overrides": {
+    "sharp": "^0.35.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
