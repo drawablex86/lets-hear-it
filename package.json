@@ -1,6 +1,6 @@
 {
   "name": "lets-hear-it",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Zero-setup local neural text-to-speech for English notes with live word tracking and MP3 export for Obsidian",
   "main": "main.js",
   "scripts": {
