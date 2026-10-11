@@ -174,15 +174,17 @@ export class TTSEngine {
 				}
 			}
 
-			// Fallback if fs not available
-			const formattedPath = basePluginPath.endsWith("/") ? basePluginPath : `${basePluginPath}/`;
+			// Fallback: If local wasm files are not in the plugin directory (e.g. fresh community directory install),
+			// load runtime WebAssembly engine from pinned jsDelivr CDN
+			const cdnFallback = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";
 			if (ort && ort.env && ort.env.wasm) {
-				ort.env.wasm.wasmPaths = formattedPath;
+				ort.env.wasm.wasmPaths = cdnFallback;
 				ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
 			}
 			if (kokoroEnv) {
-				kokoroEnv.wasmPaths = formattedPath;
+				kokoroEnv.wasmPaths = cdnFallback;
 			}
+			console.log("[let's hear it] Configured CDN fallback for ONNX Runtime WebAssembly:", cdnFallback);
 		} catch (err) {
 			console.warn("[let's hear it] Failed to set custom ort wasm path:", err);
 		}
