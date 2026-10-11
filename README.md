@@ -2,11 +2,15 @@
 > **Local, private, neural text-to-speech for Obsidian notes.**  
 > Powered by [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) & ONNX Runtime Web. Zero API keys, zero cloud latency, zero external servers.
 
+> [!NOTE]
+> **Language Support**: *let's hear it* currently supports **English notes only** (with 28 distinct American and British voices). Other languages are not supported at this time.
+
 ---
 
 ## Features
 
 - 🧠 **100% Local Neural TTS**: Runs directly inside Obsidian using ONNX Runtime WebAssembly SIMD and WebGPU. Your notes never leave your machine.
+- 🎙️ **Export Notes to MP3**: Convert entire notes into high-quality MP3 audio files with a single click. Save recordings directly to your vault for offline listening or podcasting.
 - 🗣️ **28 Distinct Neural Voices**: American and British male/female voices with varied accents, styles, and tones (e.g. Heart, Bella, Nicole, Michael, Emma, George).
 - ⚡ **Chunked Sentence Pipeline**: Instant playback start! Sentences are cleaned, split, and pre-buffered in the background so you never wait for an entire document to synthesize.
 - 🎛️ **Floating Audio Player**: Sleek, non-intrusive floating control bar with play/pause, restart, speed control (`0.75x` - `2.0x`), quick voice selector, and progress indicators.

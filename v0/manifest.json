@@ -1,9 +1,9 @@
 {
   "id": "lets-hear-it",
   "name": "let's hear it",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.0.0",
-  "description": "Listen to your notes with fast, private neural text-to-speech. Features 28 local AI voices, real-time word highlighting, and zero cloud latency.",
+  "description": "Fast, private local neural text-to-speech for English notes with live word tracking and MP3 audio export.",
   "author": "Rahul Rajeev",
   "isDesktopOnly": true
 }
