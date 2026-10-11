@@ -139,11 +139,10 @@ export class ExportMp3Modal extends Modal {
 				this.statusEl.textContent = "Loading Kokoro neural voice model...";
 			}
 			if (this.progressFillEl) {
-				this.progressFillEl.style.width = "5%";
+				this.progressFillEl.setCssStyles({ width: "5%" });
 			}
 
 			// 1. Synthesize all sentences into a Float32Array PCM
-			const totalSentences = this.sentences.length;
 			const pcmData = await ttsEngine.generateFullAudio(
 				this.sentences,
 				this.selectedVoice,
@@ -153,7 +152,7 @@ export class ExportMp3Modal extends Modal {
 					}
 					if (this.progressFillEl) {
 						const pct = Math.floor((current / total) * 85);
-						this.progressFillEl.style.width = `${Math.max(5, pct)}%`;
+						this.progressFillEl.setCssStyles({ width: `${Math.max(5, pct)}%` });
 					}
 				}
 			);
@@ -163,11 +162,11 @@ export class ExportMp3Modal extends Modal {
 				this.statusEl.textContent = "Encoding audio to MP3 format...";
 			}
 			if (this.progressFillEl) {
-				this.progressFillEl.style.width = "90%";
+				this.progressFillEl.setCssStyles({ width: "90%" });
 			}
 
 			// Let UI re-render before blocking CPU with encode
-			await new Promise((r) => setTimeout(r, 20));
+			await new Promise((r) => window.setTimeout(r, 20));
 
 			const mp3ArrayBuffer = encodeFloat32ToMp3(pcmData, 24000, 128);
 
@@ -176,13 +175,13 @@ export class ExportMp3Modal extends Modal {
 				this.statusEl.textContent = "Saving MP3 to vault...";
 			}
 			if (this.progressFillEl) {
-				this.progressFillEl.style.width = "98%";
+				this.progressFillEl.setCssStyles({ width: "98%" });
 			}
 
 			const savedFile = await this.saveMp3ToVault(mp3ArrayBuffer);
 
 			if (this.progressFillEl) {
-				this.progressFillEl.style.width = "100%";
+				this.progressFillEl.setCssStyles({ width: "100%" });
 			}
 
 			new Notice(`MP3 successfully created: ${savedFile.path}`, 6000);

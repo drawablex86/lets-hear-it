@@ -154,9 +154,11 @@
 	border-radius: 2px;
 }
 
+.markdown-reading-view .lets-hear-it-active-word,
+.cm-editor .lets-hear-it-active-word,
 .lets-hear-it-active-word {
-	background-color: var(--text-highlight-bg, #ffd54f) !important;
-	color: var(--text-normal) !important;
+	background-color: var(--text-highlight-bg, #ffd54f);
+	color: var(--text-normal);
 	border-radius: 2px;
 }
 

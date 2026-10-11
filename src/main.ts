@@ -1,4 +1,4 @@
-import { Plugin, addIcon, MarkdownView, Notice, FileSystemAdapter, TFile, MenuItem } from "obsidian";
+import { Plugin, addIcon, MarkdownView, Notice, TFile, MenuItem } from "obsidian";
 import { EAR_ICON_ID, EAR_ICON_SVG, GLASSES_ICON_ID, GLASSES_ICON_SVG, RECORD_ICON_ID, RECORD_ICON_SVG } from "./ui/icons";
 import { TTSEngine, TTSState } from "./engine/ttsEngine";
 import { cleanMarkdownForSpeech, SentenceChunk } from "./engine/cleaner";

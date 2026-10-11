@@ -43,18 +43,18 @@ export function cleanMarkdownForSpeech(markdown: string): CleanMarkdownResult {
 
 	// 5. Strip block math ($$ ... $$) and inline math ($ ... $)
 	text = text.replace(/\$\$[\s\S]*?\$\$/g, " ");
-	text = text.replace(/\$([^\$\n]+)\$/g, "$1");
+	text = text.replace(/\$([^$\n]+)\$/g, "$1");
 
 	// 6. Strip image embeds (![[...]] or ![alt](url))
 	text = text.replace(/!\[\[[^\]]+\]\]/g, " ");
-	text = text.replace(/!\[[^\]]*\]\([^\)]+\)/g, " ");
+	text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, " ");
 
 	// 7. Resolve wikilinks: [[link|alias]] -> alias, [[link]] -> link
-	text = text.replace(/\[\[([^\|\]]+)\|([^\]]+)\]\]/g, "$2");
+	text = text.replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, "$2");
 	text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
 
 	// 8. Resolve standard Markdown links: [text](url) -> text
-	text = text.replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1");
+	text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 
 	// 9. Strip raw HTML tags (e.g., <div>, <span>, <br>)
 	text = text.replace(/<[^>]+>/g, " ");
@@ -76,9 +76,9 @@ export function cleanMarkdownForSpeech(markdown: string): CleanMarkdownResult {
 	// 14. Strip markdown bold/italic/strikethrough/highlight/footnote formatting characters:
 	// **bold**, *italic*, __bold__, _italic_, ~~strikethrough~~, ==highlight==
 	text = text.replace(/==([^=]+)==/g, "$1");
-	text = text.replace(/\*\*([^\*]+)\*\*/g, "$1");
+	text = text.replace(/\*\*([^*]+)\*\*/g, "$1");
 	text = text.replace(/__([^_]+)__/g, "$1");
-	text = text.replace(/\*([^\*]+)\*/g, "$1");
+	text = text.replace(/\*([^*]+)\*/g, "$1");
 	text = text.replace(/_([^_]+)_/g, "$1");
 	text = text.replace(/~~([^~]+)~~/g, "$1");
 	text = text.replace(/\[\^[^\]]+\]/g, ""); // footnote references [^1]
@@ -133,7 +133,7 @@ export function segmentIntoSentences(text: string): SentenceChunk[] {
 
 				// Check abbreviation words preceding the period
 				if (!isAbbr) {
-					const wordBeforeMatch = text.slice(Math.max(0, i - 10), i).match(/([a-zA-Z\.]+)$/);
+					const wordBeforeMatch = text.slice(Math.max(0, i - 10), i).match(/([a-zA-Z.]+)$/);
 					if (wordBeforeMatch) {
 						const candidate = wordBeforeMatch[1].toLowerCase().replace(/^\./, "");
 						if (commonAbbreviations.includes(candidate)) {
@@ -147,7 +147,7 @@ export function segmentIntoSentences(text: string): SentenceChunk[] {
 			if (!isAbbr && (char === "\n" || /\s/.test(nextChar) || i === text.length - 1)) {
 				// Consume any closing quotes or brackets attached to the punctuation (e.g. '."', ?")
 				let end = i + 1;
-				while (end < text.length && /['"’”\)]/.test(text[end])) {
+				while (end < text.length && /['"’”)]/.test(text[end])) {
 					end++;
 				}
 

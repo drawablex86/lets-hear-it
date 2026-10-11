@@ -53,18 +53,22 @@ export class TTSEngine {
 		this.audioContext = audioContext;
 		this.events = events;
 
-		// Ensure global caches object exists to prevent Kokoro voice downloader ReferenceErrors
+		// Ensure caches object exists on window to prevent Kokoro voice downloader ReferenceErrors
 		try {
-			const target = (typeof window !== "undefined" ? window : globalThis) as any;
-			if (!target.caches || typeof target.caches.open !== "function") {
-				target.caches = {
-					open: async () => ({
-						match: async () => undefined,
-						put: async () => {},
-					}),
-				};
+			if (typeof window !== "undefined") {
+				const win = window as any;
+				if (!win.caches || typeof win.caches.open !== "function") {
+					win.caches = {
+						open: async () => ({
+							match: async () => undefined,
+							put: async () => {},
+						}),
+					};
+				}
 			}
-		} catch (e) {}
+		} catch {
+			// ignore cache polyfill errors
+		}
 	}
 
 	public static getInstance(audioContext: AudioContext, events: TTSEngineEvents = {}): TTSEngine {
@@ -258,7 +262,7 @@ export class TTSEngine {
 							progress_callback: progressCallback,
 						});
 					} catch (secondError) {
-						console.log(`[let's hear it] Retrying with device: wasm, dtype: q8`);
+						console.warn(`[let's hear it] Retrying with device: wasm, dtype: q8 due to:`, secondError);
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
 							dtype: "q8" as any,
 							device: "wasm",
@@ -569,16 +573,16 @@ export class TTSEngine {
 				if (this.events.onTimeUpdate) {
 					this.events.onTimeUpdate(sentenceIndex, Math.min(elapsedSeconds, this.currentAudioDuration), this.currentAudioDuration);
 				}
-				this.timeUpdateRafId = requestAnimationFrame(update);
+				this.timeUpdateRafId = window.requestAnimationFrame(update);
 			}
 		};
 
-		this.timeUpdateRafId = requestAnimationFrame(update);
+		this.timeUpdateRafId = window.requestAnimationFrame(update);
 	}
 
 	private stopTimeTracking() {
 		if (this.timeUpdateRafId !== null) {
-			cancelAnimationFrame(this.timeUpdateRafId);
+			window.cancelAnimationFrame(this.timeUpdateRafId);
 			this.timeUpdateRafId = null;
 		}
 	}
