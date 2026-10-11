@@ -127,6 +127,43 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		// Local Speech Engine Setup Section
+		containerEl.createEl("h2", { text: "Local Speech Engine Setup" });
+
+		const status = this.plugin.wasmAssetManager.checkStatus();
+		const mbSize = (status.wasmSize / (1024 * 1024)).toFixed(1);
+		const statusDesc = status.isReady
+			? `🟢 Ready for offline neural synthesis (${mbSize} MB local engine installed).`
+			: "🟠 Setup required. Offline ONNX WebAssembly engine files (~21 MB) are not yet downloaded in the plugin folder.";
+
+		const engineSetting = new Setting(containerEl)
+			.setName("Offline neural engine")
+			.setDesc(statusDesc);
+
+		engineSetting.addButton((btn) => {
+			btn.setButtonText(status.isReady ? "Re-download / Verify Engine" : "Download Local Engine (~21 MB)")
+				.setCta(!status.isReady)
+				.onClick(async () => {
+					btn.setDisabled(true);
+					btn.setButtonText("Downloading engine...");
+					const originalDesc = engineSetting.descEl.textContent ?? "";
+					
+					const success = await this.plugin.wasmAssetManager.downloadAssets((pct, msg) => {
+						engineSetting.setDesc(`⏳ ${msg} (${pct}%)`);
+					});
+
+					btn.setDisabled(false);
+					if (success) {
+						this.display(); // Refresh settings tab
+					} else {
+						engineSetting.setDesc(originalDesc);
+						btn.setButtonText("Retry Download");
+					}
+				});
+		});
+
+		containerEl.createEl("h2", { text: "Speech Settings" });
+
 		// Voice Selector
 		new Setting(containerEl)
 			.setName("Voice")

@@ -6,9 +6,11 @@ import { FloatingPlayer } from "./ui/player";
 import { WordHighlighter } from "./ui/highlighter";
 import { LetsHearItSettings, DEFAULT_SETTINGS, LetsHearItSettingTab } from "./settings";
 import { ExportMp3Modal } from "./ui/recordModal";
+import { WasmAssetManager } from "./engine/wasmDownloader";
 
 export default class LetsHearItPlugin extends Plugin {
 	public settings: LetsHearItSettings = DEFAULT_SETTINGS;
+	public wasmAssetManager: WasmAssetManager = new WasmAssetManager(this);
 	private audioContext: AudioContext | null = null;
 	private ttsEngine: TTSEngine | null = null;
 	private player: FloatingPlayer | null = null;
@@ -20,9 +22,31 @@ export default class LetsHearItPlugin extends Plugin {
 		await this.loadSettings();
 
 		// Ensure Electron renderer flag is set so onnxruntime doesn't treat context as Node CLI
-		const electronProc = typeof process !== "undefined" ? (process as unknown as { type?: string }) : undefined;
-		if (electronProc && !electronProc.type) {
-			electronProc.type = "renderer";
+		const setRendererFlag = (p: unknown) => {
+			if (p && typeof p === "object") {
+				const proc = p as { type?: string };
+				if (proc.type !== "renderer") {
+					try {
+						proc.type = "renderer";
+					} catch {
+						try {
+							Object.defineProperty(proc, "type", {
+								value: "renderer",
+								writable: true,
+								configurable: true,
+								enumerable: true,
+							});
+						} catch {}
+					}
+				}
+			}
+		};
+
+		if (typeof process !== "undefined") {
+			setRendererFlag(process);
+		}
+		if (typeof globalThis !== "undefined" && (globalThis as unknown as { process?: unknown }).process) {
+			setRendererFlag((globalThis as unknown as { process?: unknown }).process);
 		}
 
 		// Expose require on window so in-memory modules can access Node fs
@@ -165,6 +189,10 @@ export default class LetsHearItPlugin extends Plugin {
 	/**
 	 * Configures ONNX Runtime WASM resolution to locate binaries inside the plugin directory
 	 */
+	public reconfigureWasmDirectory() {
+		this.configureWasmDirectory();
+	}
+
 	private configureWasmDirectory() {
 		try {
 			const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
@@ -190,6 +218,32 @@ export default class LetsHearItPlugin extends Plugin {
 		} catch (err) {
 			console.warn("[let's hear it] Could not configure custom wasm paths:", err);
 		}
+	}
+
+	/**
+	 * Ensures local WASM speech engine files are downloaded before attempting playback
+	 */
+	public async ensureEngineReady(): Promise<boolean> {
+		const status = this.wasmAssetManager.checkStatus();
+		if (status.isReady) {
+			return true;
+		}
+
+		new Notice("Let's Hear It: Downloading offline speech engine files (~21 MB)...", 5000);
+		let notice: Notice | null = null;
+		const success = await this.wasmAssetManager.downloadAssets((pct, msg) => {
+			if (!notice) {
+				notice = new Notice(msg, 0);
+			} else {
+				notice.setMessage(`[let's hear it] ${msg} (${pct}%)`);
+			}
+		});
+
+		if (notice) {
+			(notice as Notice).hide();
+		}
+
+		return success;
 	}
 
 	/**
@@ -303,6 +357,11 @@ export default class LetsHearItPlugin extends Plugin {
 		this.isStartingPlayback = true;
 
 		try {
+			const engineReady = await this.ensureEngineReady();
+			if (!engineReady) {
+				return;
+			}
+
 			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 			if (!activeView) {
 				new Notice("No active markdown note to read.");

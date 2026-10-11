@@ -17,7 +17,9 @@ const copyWasmPlugin = {
 	setup(build) {
 		build.onEnd(() => {
 			try {
-				const ortDistPath = path.resolve("node_modules/onnxruntime-web/dist");
+				const nestedOrtDistPath = path.resolve("node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist");
+				const rootOrtDistPath = path.resolve("node_modules/onnxruntime-web/dist");
+				const ortDistPath = fs.existsSync(nestedOrtDistPath) ? nestedOrtDistPath : rootOrtDistPath;
 				if (fs.existsSync(ortDistPath)) {
 					const files = fs.readdirSync(ortDistPath);
 					const targets = [path.resolve("."), path.resolve("v0")];
@@ -114,8 +116,21 @@ const copyWasmPlugin = {
 					// Replace (await import(r)).default with safe Data URL dynamic importer
 					const search = `(await import(r)).default`;
 					const replacement = `(await (async (specifier) => {
-						if (typeof require === "function" && typeof specifier === "string") {
-							if (specifier.startsWith("file://")) {
+						if (typeof specifier === "string") {
+							// 1. Intercept bare Node.js built-ins that cause browser dynamic import syntax errors
+							if (specifier === "worker_threads" || specifier === "node:worker_threads") {
+								const stub = "export default {}; export const workerData = undefined; export class Worker {}; export const parentPort = null; export const isMainThread = true;";
+								const base64 = typeof Buffer !== "undefined" ? Buffer.from(stub).toString("base64") : btoa(stub);
+								return import(\`data:text/javascript;base64,\${base64}\`);
+							}
+							if (specifier === "module" || specifier === "node:module") {
+								const stub = "export default {}; export const createRequire = () => () => ({});";
+								const base64 = typeof Buffer !== "undefined" ? Buffer.from(stub).toString("base64") : btoa(stub);
+								return import(\`data:text/javascript;base64,\${base64}\`);
+							}
+
+							// 2. Intercept local file:// URLs and convert to Data URL
+							if (typeof require === "function" && specifier.startsWith("file://")) {
 								const fs = require("fs");
 								const filePath = decodeURIComponent(specifier.replace(/^file:\\/\\//, ""));
 								if (fs.existsSync(filePath)) {
@@ -127,9 +142,22 @@ const copyWasmPlugin = {
 								try {
 									const resp = await fetch(specifier);
 									const buf = await resp.arrayBuffer();
-									const base64 = Buffer.from(buf).toString("base64");
+									const base64 = typeof Buffer !== "undefined" ? Buffer.from(buf).toString("base64") : btoa(String.fromCharCode(...new Uint8Array(buf)));
 									return import(\`data:text/javascript;base64,\${base64}\`);
 								} catch (e) {}
+							} else if (specifier.startsWith("http://") || specifier.startsWith("https://")) {
+								// 3. Intercept remote CDN .mjs runners (e.g. jsDelivr) and sanitize node imports
+								if (specifier.includes("onnxruntime-web") && specifier.endsWith(".mjs")) {
+									try {
+										const resp = await fetch(specifier);
+										let text = await resp.text();
+										text = text.replace(/await\\s+import\\s*\\(\\s*["']module["']\\s*\\)/g, "{ createRequire: () => () => ({}) }");
+										text = text.replace(/await\\s+import\\s*\\(\\s*["']worker_threads["']\\s*\\)/g, "{ workerData: undefined }");
+										text = text.replace(/require\\s*\\(\\s*["']worker_threads["']\\s*\\)/g, "{}");
+										const base64 = typeof Buffer !== "undefined" ? Buffer.from(text).toString("base64") : btoa(unescape(encodeURIComponent(text)));
+										return import(\`data:text/javascript;base64,\${base64}\`);
+									} catch (e) {}
+								}
 							}
 						}
 						return import(specifier);
@@ -140,11 +168,11 @@ const copyWasmPlugin = {
 						console.log("[copy-wasm-plugin] main.js dynamic import successfully patched with Data URL loader.");
 					}
 
-					// Neutralize CDN wasmPaths override that breaks Electron ESM loader
-					const cdnSearch = `!x.wasm.wasmPaths&&(x.wasm.wasmPaths=\`https://cdn.jsdelivr.net/npm/@huggingface/transformers@\${c.env.version}/dist/\`)`;
-					if (mainJs.includes(cdnSearch)) {
-						mainJs = mainJs.replace(cdnSearch, `true`);
-						console.log("[copy-wasm-plugin] Neutralized transformers CDN wasmPaths override.");
+					// Neutralize CDN wasmPaths override that breaks Electron ESM loader across minifier variables
+					const cdnRegex = /![a-zA-Z0-9_$]+\.wasm\.wasmPaths&&\([a-zA-Z0-9_$]+\.wasm\.wasmPaths=`https:\/\/cdn\.jsdelivr\.net\/npm\/@huggingface\/transformers@\$\{[a-zA-Z0-9_$]+\.env\.version\}\/dist\/`\)/g;
+					if (cdnRegex.test(mainJs)) {
+						mainJs = mainJs.replace(cdnRegex, `true`);
+						console.log("[copy-wasm-plugin] Neutralized transformers CDN wasmPaths override via regex.");
 					}
 
 					fs.writeFileSync(mainJsPath, mainJs, "utf8");

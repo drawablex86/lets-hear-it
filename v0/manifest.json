@@ -1,7 +1,7 @@
 {
   "id": "lets-hear-it",
   "name": "Lets Hear It",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "minAppVersion": "1.7.0",
   "description": "Fast, private local neural text-to-speech for English notes with live word tracking and MP3 audio export.",
   "author": "Rahul Rajeev",

@@ -129,6 +129,17 @@ export class ExportMp3Modal extends Modal {
 		progressContainer.removeClass("is-hidden");
 
 		try {
+			const engineReady = await this.plugin.ensureEngineReady();
+			if (!engineReady) {
+				this.isGenerating = false;
+				if (this.generateBtn) {
+					this.generateBtn.disabled = false;
+					this.generateBtn.textContent = "Generate MP3";
+				}
+				progressContainer.addClass("is-hidden");
+				return;
+			}
+
 			await this.plugin.ensureAudioContext();
 			const ttsEngine = this.plugin.getTTSEngine();
 			if (!ttsEngine) {
