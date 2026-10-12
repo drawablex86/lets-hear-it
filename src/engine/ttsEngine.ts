@@ -43,6 +43,7 @@ export class TTSEngine {
 
 	// Audio scheduling tracking
 	private voice = "af_heart";
+	private hardwareAcceleration: "wasm" | "webgpu" = "wasm";
 	private playbackRate = 1.0;
 	private sentenceStartTime = 0;
 	private sentencePauseOffset = 0;
@@ -116,6 +117,28 @@ export class TTSEngine {
 
 	public getVoice(): string {
 		return this.voice;
+	}
+
+	public setHardwareAcceleration(accel: "wasm" | "webgpu") {
+		this.hardwareAcceleration = accel;
+	}
+
+	public getHardwareAcceleration(): "wasm" | "webgpu" {
+		return this.hardwareAcceleration;
+	}
+
+	/**
+	 * Switches the inference engine dynamically and re-initializes KokoroTTS.
+	 */
+	public async switchEngine(accel: "wasm" | "webgpu"): Promise<void> {
+		if (this.hardwareAcceleration === accel && this.ttsModel) {
+			return;
+		}
+		this.hardwareAcceleration = accel;
+		this.ttsModel = null;
+		this.modelInitPromise = null;
+		this.audioCache.clear();
+		await this.initModel();
 	}
 
 	public setEvents(events: TTSEngineEvents) {
@@ -260,14 +283,13 @@ export class TTSEngine {
 			};
 
 			const modelId = "onnx-community/Kokoro-82M-v1.0-ONNX";
-			// Default to 'q8' (8-bit quantization) on WASM: cuts model weights to ~85MB
-			// and reduces intermediate tensor activation memory by 75%, completely preventing
-			// macOS Memory Pressure red spikes, audio buffer under-runs, and system freezes.
-			let device: "webgpu" | "wasm" = "wasm";
-			if (typeof navigator !== "undefined" && "gpu" in navigator && (navigator as unknown as { gpu?: unknown }).gpu) {
-				device = "webgpu";
-			}
-
+			// Hardware Acceleration:
+			// "wasm" (Balanced / Recommended): Uses 8-bit quantization ('q8') on WASM SIMD,
+			//   occupying ~85MB memory with 0 unmanaged GPU buffer leaks, 100% stable, zero system freezes.
+			// "webgpu" (Experimental): Uses WebGPU 'fp32' for raw compute acceleration.
+			const requestedDevice = this.hardwareAcceleration;
+			const isGpuSupported = typeof navigator !== "undefined" && "gpu" in navigator && !!(navigator as unknown as { gpu?: unknown }).gpu;
+			const device: "webgpu" | "wasm" = requestedDevice === "webgpu" && isGpuSupported ? "webgpu" : "wasm";
 			const dtype = device === "webgpu" ? "fp32" : "q8";
 
 			try {
@@ -276,7 +298,8 @@ export class TTSEngine {
 					device,
 					progress_callback: progressCallback,
 				});
-			} catch {
+			} catch (err) {
+				console.warn(`[let's hear it] Failed to initialize model with device=${device}, dtype=${dtype}:`, err);
 				if (device === "webgpu") {
 					try {
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {

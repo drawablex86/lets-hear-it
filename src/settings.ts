@@ -7,6 +7,7 @@ export interface LetsHearItSettings {
 	hearingModeOnPlay: boolean;
 	autoScroll: boolean;
 	exportFolder: string;
+	hardwareAcceleration: "wasm" | "webgpu";
 }
 
 export const DEFAULT_SETTINGS: LetsHearItSettings = {
@@ -15,6 +16,7 @@ export const DEFAULT_SETTINGS: LetsHearItSettings = {
 	hearingModeOnPlay: true,
 	autoScroll: true,
 	exportFolder: "",
+	hardwareAcceleration: "wasm",
 };
 
 export interface VoiceOption {
@@ -118,6 +120,18 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 					type: "text",
 					key: "exportFolder",
 					placeholder: "e.g. Audio/Recordings (leave blank for vault root)",
+				},
+			},
+			{
+				name: "Inference engine (Hardware acceleration)",
+				desc: "Choose between rock-solid CPU WASM (recommended) or experimental WebGPU.",
+				control: {
+					type: "dropdown",
+					key: "hardwareAcceleration",
+					options: {
+						"wasm": "Balanced (CPU WASM) - Recommended",
+						"webgpu": "Experimental (WebGPU)",
+					},
 				},
 			},
 		];
@@ -238,6 +252,27 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 						this.plugin.settings.exportFolder = val.trim();
 						await this.plugin.saveSettings();
 					});
+			});
+
+		// Advanced Engine & Hardware Acceleration Section
+		new Setting(containerEl).setName("Advanced Engine & Performance").setHeading();
+
+		new Setting(containerEl)
+			.setName("Inference engine (Hardware acceleration)")
+			.setDesc("Balanced (CPU WASM) runs 8-bit quantized speech model with ~85 MB memory and zero GPU leaks. Experimental (WebGPU) leverages graphics compute but may accumulate GPU memory in Electron.")
+			.addDropdown((dropdown) => {
+				dropdown.addOption("wasm", "Balanced: CPU WASM (q8) — Recommended");
+				dropdown.addOption("webgpu", "Experimental: WebGPU (fp32)");
+				dropdown.setValue(this.plugin.settings.hardwareAcceleration);
+				dropdown.onChange(async (val) => {
+					const accel = val as "wasm" | "webgpu";
+					this.plugin.settings.hardwareAcceleration = accel;
+					await this.plugin.saveSettings();
+					const engine = this.plugin.getTTSEngine();
+					if (engine) {
+						await engine.switchEngine(accel);
+					}
+				});
 			});
 	}
 }

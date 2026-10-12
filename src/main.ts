@@ -360,6 +360,7 @@ export default class LetsHearItPlugin extends Plugin {
 			});
 			this.ttsEngine.setVoice(this.settings.voice);
 			this.ttsEngine.setPlaybackRate(this.settings.playbackSpeed);
+			this.ttsEngine.setHardwareAcceleration(this.settings.hardwareAcceleration);
 		}
 
 		if (!this.player) {
