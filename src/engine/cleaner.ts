@@ -121,7 +121,7 @@ export function segmentIntoSentences(text: string): SentenceChunk[] {
 
 		// Check for sentence terminator
 		if (char === "." || char === "?" || char === "!" || char === "\n") {
-			// Check if this period is part of an abbreviation or decimal number
+			// If this period is part of an abbreviation or decimal number
 			let isAbbr = false;
 
 			if (char === ".") {
@@ -143,35 +143,34 @@ export function segmentIntoSentences(text: string): SentenceChunk[] {
 				}
 			}
 
-			// If it's a real sentence terminator and followed by space/newline/EOF
-			if (!isAbbr && (char === "\n" || /\s/.test(nextChar) || i === text.length - 1)) {
-				// Consume any closing quotes or brackets attached to the punctuation (e.g. '."', ?")
-				let end = i + 1;
-				while (end < text.length && /['"’”)]/.test(text[end])) {
-					end++;
+			if (!isAbbr) {
+				// Scan past any immediate closing punctuation, quotes, brackets, or markdown formatting
+				// e.g., '."', '?"', '!"', '?”', '.”', ')]', '**', etc.
+				let peek = i + 1;
+				while (peek < text.length && /['"’”\)\]\}\*_~]/.test(text[peek])) {
+					peek++;
 				}
 
-				const rawSentence = text.slice(currentStart, end).trim();
-				if (rawSentence.length > 0) {
-					// Find actual start after leading whitespace
-					const leadingSpaces = text.slice(currentStart, end).search(/\S/);
-					const actualStart = currentStart + (leadingSpaces > 0 ? leadingSpaces : 0);
-					const actualEnd = actualStart + rawSentence.length;
+				const isAtEnd = peek >= text.length;
+				const isFollowedBySpaceOrNewline = isAtEnd || /\s/.test(text[peek]) || char === "\n";
 
-					sentenceTexts.push({
-						text: rawSentence,
-						start: actualStart,
-						end: actualEnd,
-					});
-				}
+				if (isFollowedBySpaceOrNewline) {
+					const rawSentence = text.slice(currentStart, peek).trim();
+					if (rawSentence.length > 0) {
+						// Split overlong sentences (> 320 chars) at natural clause boundaries
+						// to ensure Kokoro-82M never exceeds its ~500 phoneme context window.
+						const subChunks = splitOverlongSentence(rawSentence, currentStart, text);
+						sentenceTexts.push(...subChunks);
+					}
 
-				// Move past the whitespace for next sentence
-				while (end < text.length && /\s/.test(text[end])) {
-					end++;
+					// Advance past trailing whitespace to start of next sentence
+					while (peek < text.length && /\s/.test(text[peek])) {
+						peek++;
+					}
+					currentStart = peek;
+					i = peek;
+					continue;
 				}
-				currentStart = end;
-				i = end;
-				continue;
 			}
 		}
 		i++;
@@ -181,13 +180,8 @@ export function segmentIntoSentences(text: string): SentenceChunk[] {
 	if (currentStart < text.length) {
 		const rawSentence = text.slice(currentStart).trim();
 		if (rawSentence.length > 0) {
-			const leadingSpaces = text.slice(currentStart).search(/\S/);
-			const actualStart = currentStart + (leadingSpaces > 0 ? leadingSpaces : 0);
-			sentenceTexts.push({
-				text: rawSentence,
-				start: actualStart,
-				end: actualStart + rawSentence.length,
-			});
+			const subChunks = splitOverlongSentence(rawSentence, currentStart, text);
+			sentenceTexts.push(...subChunks);
 		}
 	}
 
@@ -202,6 +196,107 @@ export function segmentIntoSentences(text: string): SentenceChunk[] {
 			endOffsetInCleanText: item.end,
 		};
 	});
+}
+
+/**
+ * Splits sentences longer than maxChars (default 320) into natural clause chunks
+ * on semicolons, colons, em-dashes, or commas, guaranteeing Kokoro-82M never stalls
+ * or overflows its token context window.
+ */
+function splitOverlongSentence(
+	rawSentence: string,
+	currentStart: number,
+	fullText: string,
+	maxChars = 320
+): { text: string; start: number; end: number }[] {
+	const leadingSpaces = fullText.slice(currentStart).search(/\S/);
+	const baseStart = currentStart + (leadingSpaces > 0 ? leadingSpaces : 0);
+
+	if (rawSentence.length <= maxChars) {
+		return [{
+			text: rawSentence,
+			start: baseStart,
+			end: baseStart + rawSentence.length,
+		}];
+	}
+
+	// Clause-splitting regex: look for ; : — – or comma followed by space
+	const results: { text: string; start: number; end: number }[] = [];
+	let searchPos = 0;
+
+	while (searchPos < rawSentence.length) {
+		const remaining = rawSentence.slice(searchPos);
+		if (remaining.length <= maxChars) {
+			const trimChunk = remaining.trim();
+			if (trimChunk.length > 0) {
+				const chunkStart = searchPos + remaining.search(/\S/);
+				results.push({
+					text: trimChunk,
+					start: baseStart + chunkStart,
+					end: baseStart + chunkStart + trimChunk.length,
+				});
+			}
+			break;
+		}
+
+		// Look for natural clause boundary (; : — or comma) within maxChars
+		const windowStr = remaining.slice(0, maxChars);
+		let splitIndex = -1;
+
+		// 1. Try semicolons, colons, or em-dashes
+		const clauseBreakMatch = windowStr.match(/([;:—–])\s+/g);
+		if (clauseBreakMatch) {
+			const lastBreak = windowStr.lastIndexOf(clauseBreakMatch[clauseBreakMatch.length - 1]);
+			if (lastBreak > 40) {
+				splitIndex = lastBreak + 1; // Include the punctuation mark
+			}
+		}
+
+		// 2. Fall back to commas followed by space
+		if (splitIndex === -1) {
+			const commaMatch = windowStr.match(/,\s+/g);
+			if (commaMatch) {
+				const lastComma = windowStr.lastIndexOf(commaMatch[commaMatch.length - 1]);
+				if (lastComma > 40) {
+					splitIndex = lastComma + 1;
+				}
+			}
+		}
+
+		// 3. Fall back to any word boundary space
+		if (splitIndex === -1) {
+			const lastSpace = windowStr.lastIndexOf(" ");
+			if (lastSpace > 40) {
+				splitIndex = lastSpace;
+			} else {
+				// Hard break if no whitespace found
+				splitIndex = maxChars;
+			}
+		}
+
+		const chunkText = remaining.slice(0, splitIndex).trim();
+		if (chunkText.length > 0) {
+			const chunkStart = searchPos + remaining.slice(0, splitIndex).search(/\S/);
+			results.push({
+				text: chunkText,
+				start: baseStart + chunkStart,
+				end: baseStart + chunkStart + chunkText.length,
+			});
+		}
+
+		// Skip trailing whitespace after the split point
+		let nextPos = searchPos + splitIndex;
+		while (nextPos < rawSentence.length && /\s/.test(rawSentence[nextPos])) {
+			nextPos++;
+		}
+		searchPos = nextPos;
+	}
+
+	return results.length > 0 ? results : [{
+		text: rawSentence,
+		start: baseStart,
+		end: baseStart + rawSentence.length,
+	}];
 }
 
 /**

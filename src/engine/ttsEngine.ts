@@ -203,8 +203,14 @@ export class TTSEngine {
 						ort.env.logLevel = "error";
 						if (ort.env.wasm) {
 							ort.env.wasm.wasmBinary = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
-							// Cap at 2 threads: Prevents thread pool contention with Electron renderer and avoids CPU cache thrashing
-							ort.env.wasm.numThreads = Math.min(2, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
+							// Dynamic Hardware Topology Formula:
+							// - Low-end/dual-core: 1 thread (preserves UI/main thread responsiveness)
+							// - Quad-core: 2 threads
+							// - 6-8 core hybrid (e.g. Apple Silicon 4P+4E): Math.floor(cores/2) = 4 threads (matches P-cores)
+							// - High-core workstations (12-32+): capped at 6 threads to avoid SharedArrayBuffer lock contention
+							const logicalCores = typeof navigator !== "undefined" && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
+							const optimalThreads = Math.min(6, Math.max(1, Math.floor(logicalCores / 2)));
+							ort.env.wasm.numThreads = optimalThreads;
 
 							if (fs.existsSync(mjsFile)) {
 								const mjsBuf = fs.readFileSync(mjsFile);
@@ -233,7 +239,8 @@ export class TTSEngine {
 			const cdnFallback = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/";
 			if (ort && ort.env && ort.env.wasm) {
 				ort.env.wasm.wasmPaths = cdnFallback;
-				ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
+				const logicalCores = typeof navigator !== "undefined" && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
+				ort.env.wasm.numThreads = Math.min(6, Math.max(1, Math.floor(logicalCores / 2)));
 			}
 			if (kokoroEnv) {
 				kokoroEnv.wasmPaths = cdnFallback;
@@ -497,7 +504,12 @@ export class TTSEngine {
 			return Promise.reject(new Error(`Index ${sentenceIndex} out of bounds`));
 		}
 
-		const promise = this.synthesizeSentence(text, sentenceIndex);
+		const promise = this.synthesizeSentence(text, sentenceIndex).catch((err) => {
+			// Evict rejected promise so temporary errors don't poison subsequent attempts
+			this.audioCache.delete(sentenceIndex);
+			throw err;
+		});
+
 		this.audioCache.set(sentenceIndex, promise);
 		return promise;
 	}
@@ -638,9 +650,18 @@ export class TTSEngine {
 		} catch (error) {
 			if (this.playbackSessionEpoch !== currentEpoch || this.isStopped) return;
 			console.error(`[let's hear it] Playback error at sentence ${index}:`, error);
-			this.setState("error", error instanceof Error ? error.message : String(error));
-			if (this.events.onError) {
-				this.events.onError(error instanceof Error ? error : new Error(String(error)));
+			this.audioCache.delete(index);
+
+			// If error is recoverable or on a single malformed sentence, advance to next sentence
+			// rather than permanently freezing in "buffering"
+			if (index + 1 < this.sentencesQueue.length) {
+				console.warn(`[let's hear it] Skipping problematic sentence ${index} and advancing to ${index + 1}`);
+				void this.playSentence(index + 1, 0, currentEpoch);
+			} else {
+				this.setState("error", error instanceof Error ? error.message : String(error));
+				if (this.events.onError) {
+					this.events.onError(error instanceof Error ? error : new Error(String(error)));
+				}
 			}
 		}
 	}
