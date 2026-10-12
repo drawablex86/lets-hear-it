@@ -34,17 +34,37 @@ You install the plugin, open a note, and press play.
 
 ## Everyday Workflows: How You'll Use It
 
-### 1. Proofreading That Catches Everything Your Eyes Skip
-When you read your own writing on screen, your brain auto-corrects typos, skips missing words, and ignores awkward phrasing. When you listen to your note read out loud, stumbles and rhythm issues become instantly obvious.
+### 1. Instant Neural Speech & Live Word Tracking
+Tired of staring at text after a long day? Enable **Hearing Mode**. The plugin automatically shifts your active note into a clean Reading View, keeping the active sentence smoothly centered while tracking every spoken word in real time. 
 
-### 2. Fatigue-Free Long-Form Reading
-Tired of staring at text after a long day? Enable **Hearing Mode**. The plugin automatically shifts your active document into a distraction-free Reading View, gently centering the active sentence in your viewport as the audio plays.
+When you read your own writing on screen, your eyes gloss over typos. When you listen to your note read out loud with live highlight tracking, stumbles and rhythm issues surface immediately.
 
-### 3. Read Only What Matters: Selected Portions or Whole Documents
-Need to review just a single section of a 5,000-word research note? Highlight the paragraphs you want and click the Ribbon Ear or press `Ctrl/Cmd + P`. The engine reads only your selection and leaves the rest alone.
+<p align="center">
+  <video src="https://raw.githubusercontent.com/drawablex86/lets-hear-it/master/ux-vids/live-tts.mp4" width="100%" controls>
+    <a href="https://raw.githubusercontent.com/drawablex86/lets-hear-it/master/ux-vids/live-tts.mp4">▶ Watch Live Neural Speech Demo (live-tts.mp4)</a>
+  </video>
+</p>
+<p align="center"><sub>🎬 <b>Live Demo:</b> Instant playback start, floating audio dock, and zero-drift word highlighting.</sub></p>
 
-### 4. Turn Vault Notes into Offline MP3s with One Click
-Convert any note or selected passage into an MP3 file saved directly into your vault folder. Drop the audio file onto your phone, smartwatch, or podcast player for your daily commute or walk.
+### 2. Read Only What Matters: Selected Text on Demand
+Need to review just a single section, quote, or draft paragraph of a long research note? Highlight the exact text you want to hear, right-click, and select **Read selection** (or trigger the command palette). The engine synthesizes only the selected text and leaves the rest alone.
+
+<p align="center">
+  <video src="https://raw.githubusercontent.com/drawablex86/lets-hear-it/master/ux-vids/highlighted-text-only-tts.mp4" width="100%" controls>
+    <a href="https://raw.githubusercontent.com/drawablex86/lets-hear-it/master/ux-vids/highlighted-text-only-tts.mp4">▶ Watch Selection Playback Demo (highlighted-text-only-tts.mp4)</a>
+  </video>
+</p>
+<p align="center"><sub>🎬 <b>Live Demo:</b> Highlight any passage and synthesize only what you need without losing your place.</sub></p>
+
+### 3. Turn Vault Notes into Offline MP3s with One Click
+Convert any note or selected passage into a high-quality MP3 audio file saved directly into your vault folder. The export tool automatically names recordings from your note headings or snippets, letting you take your notes on walks or morning commutes.
+
+<p align="center">
+  <video src="https://raw.githubusercontent.com/drawablex86/lets-hear-it/master/ux-vids/mp3export.mp4" width="100%" controls>
+    <a href="https://raw.githubusercontent.com/drawablex86/lets-hear-it/master/ux-vids/mp3export.mp4">▶ Watch MP3 Export Demo (mp3export.mp4)</a>
+  </video>
+</p>
+<p align="center"><sub>🎬 <b>Live Demo:</b> One-click high-bitrate MP3 export saved directly into your Obsidian vault.</sub></p>
 
 ---
 
