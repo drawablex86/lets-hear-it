@@ -199,7 +199,7 @@ export function segmentIntoSentences(text: string): SentenceChunk[] {
 }
 
 /**
- * Splits sentences longer than maxChars (default 320) into natural clause chunks
+ * Splits sentences longer than maxChars (default 220) into natural clause chunks
  * on semicolons, colons, em-dashes, or commas, guaranteeing Kokoro-82M never stalls
  * or overflows its token context window.
  */
@@ -207,7 +207,7 @@ function splitOverlongSentence(
 	rawSentence: string,
 	currentStart: number,
 	fullText: string,
-	maxChars = 320
+	maxChars = 220
 ): { text: string; start: number; end: number }[] {
 	const leadingSpaces = fullText.slice(currentStart).search(/\S/);
 	const baseStart = currentStart + (leadingSpaces > 0 ? leadingSpaces : 0);

@@ -38,8 +38,10 @@ export class TTSEngine {
 	private activeSourceNode: AudioBufferSourceNode | null = null;
 	private playbackSessionEpoch = 0;
 	private isPrefetching = false;
-	private static readonly BUFFER_LOOKAHEAD = 1; // Strict 1-sentence lookahead to prevent RAM saturation
+	private static readonly BUFFER_LOOKAHEAD = 2; // Continuous 2-sentence lookahead (~5-8s safety margin)
 	private synthesisMutex: Promise<unknown> = Promise.resolve();
+	private static gcDebounceTimeout: number | null = null;
+	private static sentencesSinceLastGC = 0;
 
 	// Audio scheduling tracking
 	private voice = "af_heart";
@@ -384,13 +386,49 @@ export class TTSEngine {
 				}
 			}
 
-			// Trigger cooperation garbage collection / memory release if available
-			TTSEngine.triggerGarbageCollection();
+			// Schedule throttled garbage collection without blocking immediate audio pipelines
+			TTSEngine.scheduleBackgroundGCSweep();
 
 			return result;
 		};
 
 		proto._zeroLeakPatched = true;
+	}
+
+	/**
+	 * Schedules an idle, debounced garbage collection sweep.
+	 * Runs after playback pauses, completes, or every 8 sentences during idle moments,
+	 * preventing audio pipeline freezes and eliminating memory pressure sawtooth spikes.
+	 */
+	public static scheduleBackgroundGCSweep(forceNow = false): void {
+		TTSEngine.sentencesSinceLastGC++;
+
+		if (forceNow || TTSEngine.sentencesSinceLastGC >= 8) {
+			if (TTSEngine.gcDebounceTimeout !== null) {
+				window.clearTimeout(TTSEngine.gcDebounceTimeout);
+				TTSEngine.gcDebounceTimeout = null;
+			}
+			TTSEngine.sentencesSinceLastGC = 0;
+			// Defer execution to next idle frame so WebAudio scheduling has absolute priority
+			if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+				(window as unknown as { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(() => {
+					TTSEngine.triggerGarbageCollection();
+				});
+			} else {
+				window.setTimeout(() => {
+					TTSEngine.triggerGarbageCollection();
+				}, 100);
+			}
+			return;
+		}
+
+		if (TTSEngine.gcDebounceTimeout === null) {
+			TTSEngine.gcDebounceTimeout = window.setTimeout(() => {
+				TTSEngine.gcDebounceTimeout = null;
+				TTSEngine.sentencesSinceLastGC = 0;
+				TTSEngine.triggerGarbageCollection();
+			}, 3000);
+		}
 	}
 
 	/**
@@ -498,8 +536,8 @@ export class TTSEngine {
 
 			const duration = audioBuffer.duration;
 
-			// Post-synthesis memory sweep
-			TTSEngine.triggerGarbageCollection();
+			// Post-synthesis memory sweep (debounced & idle)
+			TTSEngine.scheduleBackgroundGCSweep();
 
 			return {
 				sentenceIndex,
@@ -629,8 +667,9 @@ export class TTSEngine {
 	}
 
 	/**
-	 * Strictly pre-buffers at most 2 sentences ahead sequentially to avoid RAM overload & WASM spikes.
-	 * Also purges past sentences from the cache to keep memory consumption low.
+	 * Strictly maintains a sliding window of BUFFER_LOOKAHEAD (2) pre-buffered sentences ahead.
+	 * When Sentence N is active, ensures Sentence N+1 and N+2 are resolved or actively synthesizing.
+	 * Purges finished past sentences to keep RAM footprint low.
 	 */
 	private async prefetchUpcomingSentences(currentIndex: number, currentEpoch: number): Promise<void> {
 		// Evict completed past sentences from cache to prevent RAM exhaustion
@@ -651,7 +690,10 @@ export class TTSEngine {
 				}
 				if (targetIndex < this.sentencesQueue.length && !this.audioCache.has(targetIndex)) {
 					try {
-						await this.getSentenceAudioPromise(targetIndex);
+						// Initiates synthesis promise and inserts into cache immediately
+						this.getSentenceAudioPromise(targetIndex);
+						// Await sequential execution under mutex to ensure orderly GPU dispatch
+						await this.audioCache.get(targetIndex);
 					} catch (err) {
 						console.warn(`[let's hear it] Prefetch error for sentence ${targetIndex}:`, err);
 					}
@@ -663,7 +705,7 @@ export class TTSEngine {
 	}
 
 	/**
-	 * Start reading an array of clean sentences
+	 * Start reading an array of clean sentences with proactive buffer priming
 	 */
 	public async play(sentences: string[], startIndex = 0): Promise<void> {
 		this.stop();
@@ -684,6 +726,17 @@ export class TTSEngine {
 		}
 
 		this.currentSentenceIndex = startIndex;
+
+		// Proactive buffer priming: immediately initiate synthesis for starting sentence
+		// and upcoming lookahead sentences concurrently before playSentence starts!
+		this.getSentenceAudioPromise(startIndex);
+		for (let i = 1; i <= TTSEngine.BUFFER_LOOKAHEAD; i++) {
+			const lookaheadIdx = startIndex + i;
+			if (lookaheadIdx < this.sentencesQueue.length) {
+				this.getSentenceAudioPromise(lookaheadIdx);
+			}
+		}
+
 		await this.playSentence(startIndex, 0, currentEpoch);
 	}
 
@@ -705,6 +758,9 @@ export class TTSEngine {
 
 		this.currentSentenceIndex = index;
 		this.setState("buffering", `Preparing sentence ${index + 1}/${this.sentencesQueue.length}...`);
+
+		// Proactively ensure lookahead sliding window is prefetching immediately
+		void this.prefetchUpcomingSentences(index, currentEpoch);
 
 		try {
 			const item = await this.getSentenceAudioPromise(index);
