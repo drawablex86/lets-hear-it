@@ -113,6 +113,6 @@ export class WaveformVisualizer {
 			this.resetBars();
 		}
 
-		this.animFrameId = requestAnimationFrame(this.animate);
+		this.animFrameId = window.requestAnimationFrame(this.animate);
 	};
 }

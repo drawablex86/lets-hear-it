@@ -149,6 +149,7 @@ const mockObsidian = {
       const btn = {
         setButtonText: () => btn,
         setCta: () => btn,
+        removeCta: () => btn,
         setDisabled: () => btn,
         onClick: () => btn,
       };

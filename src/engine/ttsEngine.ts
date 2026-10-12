@@ -417,12 +417,13 @@ export class TTSEngine {
 			}
 			TTSEngine.sentencesSinceLastGC = 0;
 			// Defer execution to next idle frame so WebAudio scheduling has absolute priority
-			if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-				(window as unknown as { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(() => {
+			const win = typeof window !== "undefined" ? window : undefined;
+			if (win && "requestIdleCallback" in win) {
+				(win as unknown as { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(() => {
 					TTSEngine.triggerGarbageCollection();
 				});
 			} else {
-				window.setTimeout(() => {
+				setTimeout(() => {
 					TTSEngine.triggerGarbageCollection();
 				}, 100);
 			}
@@ -539,7 +540,7 @@ export class TTSEngine {
 			}
 
 			const audioBuffer = this.audioContext.createBuffer(1, pcm.length, sampleRate);
-			audioBuffer.copyToChannel(pcm as unknown as Float32Array<ArrayBuffer>, 0);
+			audioBuffer.copyToChannel(pcm, 0);
 
 			const duration = audioBuffer.duration;
 
@@ -698,7 +699,7 @@ export class TTSEngine {
 				if (targetIndex < this.sentencesQueue.length && !this.audioCache.has(targetIndex)) {
 					try {
 						// Initiates synthesis promise and inserts into cache immediately
-						this.getSentenceAudioPromise(targetIndex);
+						void this.getSentenceAudioPromise(targetIndex);
 						// Await sequential execution under mutex to ensure orderly GPU dispatch
 						await this.audioCache.get(targetIndex);
 					} catch (err) {
@@ -736,11 +737,11 @@ export class TTSEngine {
 
 		// Proactive buffer priming: immediately initiate synthesis for starting sentence
 		// and upcoming lookahead sentences concurrently before playSentence starts!
-		this.getSentenceAudioPromise(startIndex);
+		void this.getSentenceAudioPromise(startIndex);
 		for (let i = 1; i <= TTSEngine.BUFFER_LOOKAHEAD; i++) {
 			const lookaheadIdx = startIndex + i;
 			if (lookaheadIdx < this.sentencesQueue.length) {
-				this.getSentenceAudioPromise(lookaheadIdx);
+				void this.getSentenceAudioPromise(lookaheadIdx);
 			}
 		}
 

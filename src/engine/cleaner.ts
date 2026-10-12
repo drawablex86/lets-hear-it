@@ -147,7 +147,7 @@ export function segmentIntoSentences(text: string): SentenceChunk[] {
 				// Scan past any immediate closing punctuation, quotes, brackets, or markdown formatting
 				// e.g., '."', '?"', '!"', '?”', '.”', ')]', '**', etc.
 				let peek = i + 1;
-				while (peek < text.length && /['"’”\)\]\}\*_~]/.test(text[peek])) {
+				while (peek < text.length && /['"’”\]}*_~]/.test(text[peek])) {
 					peek++;
 				}
 

@@ -74,12 +74,18 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 	}
 
 	override getControlValue(key: string): unknown {
-		return (this.plugin.settings as any)[key];
+		if (key in this.plugin.settings) {
+			return this.plugin.settings[key as keyof LetsHearItSettings];
+		}
+		return undefined;
 	}
 
 	override async setControlValue(key: string, value: unknown): Promise<void> {
-		(this.plugin.settings as any)[key] = value;
-		await this.plugin.saveSettings();
+		if (key in this.plugin.settings) {
+			const settingsRecord = this.plugin.settings as unknown as Record<string, unknown>;
+			settingsRecord[key] = value;
+			await this.plugin.saveSettings();
+		}
 
 		if (key === "voice") {
 			this.plugin.getTTSEngine()?.setVoice(value as string);
@@ -208,41 +214,46 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 			.clear();
 
 		setting.addButton((btn) => {
-			btn.setButtonText(status.isReady ? "Re-download / Verify Engine" : "Download Local Engine (~21 MB)")
-				.setCta(!status.isReady)
-				.onClick(async () => {
-					btn.setDisabled(true);
-					btn.setButtonText("Downloading engine...");
+			btn.setButtonText(status.isReady ? "Re-download / Verify Engine" : "Download Local Engine (~21 MB)");
+			if (!status.isReady) {
+				btn.setCta();
+			} else {
+				btn.removeCta();
+			}
 
-					// Stream progress via persistent Notice (duration 0) to avoid settings DOM churn
-					const downloadNotice = new Notice("Downloading offline speech engine (0%)...", 0);
+			btn.onClick(async () => {
+				btn.setDisabled(true);
+				btn.setButtonText("Downloading engine...");
 
-					try {
-						const success = await this.plugin.wasmAssetManager.downloadAssets((pct) => {
-							downloadNotice.setMessage(`Downloading offline speech engine (${pct}%)...`);
-						});
+				// Stream progress via persistent Notice (duration 0) to avoid settings DOM churn
+				const downloadNotice = new Notice("Downloading offline speech engine (0%)...", 0);
 
-						downloadNotice.hide();
+				try {
+					const success = await this.plugin.wasmAssetManager.downloadAssets((pct) => {
+						downloadNotice.setMessage(`Downloading offline speech engine (${pct}%)...`);
+					});
 
-						if (success) {
-							new Notice("Local neural speech engine installed successfully!", 5000);
-							const updatedStatus = this.plugin.wasmAssetManager.checkStatus();
-							const updatedMb = (updatedStatus.wasmSize / (1024 * 1024)).toFixed(1);
-							setting.setDesc(`🟢 Ready for offline neural synthesis (${updatedMb} MB local engine installed).`);
-							btn.setButtonText("Re-download / Verify Engine");
-							btn.setCta(false);
-						} else {
-							new Notice("Failed to download speech engine files. Please check internet connection.", 5000);
-							btn.setButtonText("Retry Download");
-						}
-					} catch (err) {
-						downloadNotice.hide();
-						new Notice(`Error downloading speech engine: ${err instanceof Error ? err.message : String(err)}`, 5000);
+					downloadNotice.hide();
+
+					if (success) {
+						new Notice("Local neural speech engine installed successfully!", 5000);
+						const updatedStatus = this.plugin.wasmAssetManager.checkStatus();
+						const updatedMb = (updatedStatus.wasmSize / (1024 * 1024)).toFixed(1);
+						setting.setDesc(`🟢 Ready for offline neural synthesis (${updatedMb} MB local engine installed).`);
+						btn.setButtonText("Re-download / Verify Engine");
+						btn.removeCta();
+					} else {
+						new Notice("Failed to download speech engine files. Please check internet connection.", 5000);
 						btn.setButtonText("Retry Download");
-					} finally {
-						btn.setDisabled(false);
 					}
-				});
+				} catch (err) {
+					downloadNotice.hide();
+					new Notice(`Error downloading speech engine: ${err instanceof Error ? err.message : String(err)}`, 5000);
+					btn.setButtonText("Retry Download");
+				} finally {
+					btn.setDisabled(false);
+				}
+			});
 		});
 	}
 
@@ -334,7 +345,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 				dropdown.addOption("wasm", "CPU WASM: Compatibility Fallback (Slower, for machines without WebGPU)");
 				dropdown.setValue(this.plugin.settings.hardwareAcceleration);
 				dropdown.onChange(async (val) => {
-					await this.setControlValue("hardwareAcceleration", val as "wasm" | "webgpu");
+					await this.setControlValue("hardwareAcceleration", val);
 				});
 			});
 	}

@@ -488,7 +488,9 @@ export class WordHighlighter {
 		if (this.isCssHighlightSupported()) {
 			try {
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(WORD_HIGHLIGHT_NAME);
-			} catch {}
+			} catch {
+				// Safely ignore highlight deletion failure
+			}
 		}
 	}
 
@@ -504,7 +506,9 @@ export class WordHighlighter {
 			try {
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(WORD_HIGHLIGHT_NAME);
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(SENTENCE_HIGHLIGHT_NAME);
-			} catch {}
+			} catch {
+				// Safely ignore highlight deletion failure
+			}
 		}
 	}
 
@@ -526,7 +530,9 @@ export class WordHighlighter {
 				this.lastScrollTimestamp = now;
 				element.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
 			}
-		} catch {}
+		} catch {
+			// Ignore element measurement or scrolling errors
+		}
 	}
 
 	private isCssHighlightSupported(): boolean {

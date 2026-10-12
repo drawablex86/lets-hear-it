@@ -17,6 +17,7 @@ export default class LetsHearItPlugin extends Plugin {
 	private highlighter: WordHighlighter | null = null;
 	private currentSentences: SentenceChunk[] = [];
 	private ribbonEarEl: HTMLElement | null = null;
+	private isStartingPlayback = false;
 
 	async onload() {
 		// Load plugin settings
