@@ -9,18 +9,6 @@ interface WordTimeRange {
 	endTime: number;
 }
 
-interface TextNodeSegment {
-	node: Text;
-	charStart: number;
-	charEnd: number;
-}
-
-interface SentenceMapEntry {
-	sentenceIndex: number;
-	charStart: number;
-	charEnd: number;
-}
-
 export class WordHighlighter {
 	private activeView: MarkdownView | null = null;
 	private sentenceWordTimes: WordTimeRange[][] = [];
@@ -29,11 +17,10 @@ export class WordHighlighter {
 	private lastHighlightedSentence = -1;
 	private lastHighlightedWord = -1;
 
-	// Global Document Position Map
-	private fullDocText = "";
-	private textNodeSegments: TextNodeSegment[] = [];
-	private sentenceMap: SentenceMapEntry[] = [];
-	private isMapBuilt = false;
+	// Block-anchored tracking
+	private activeBlockEl: HTMLElement | null = null;
+	private activeBlockTextNodes: Text[] = [];
+	private activeBlockSentenceIndex = -1;
 
 	// Viewport auto-scroll settings & throttle
 	private autoScrollEnabled = true;
@@ -54,6 +41,7 @@ export class WordHighlighter {
 
 	/**
 	 * Precomputes proportional word duration offsets for all sentences based on synthesized audio duration.
+	 * Word Duration = Audio Duration * (Word Length / Total Sentence Length)
 	 */
 	public setSentenceAudioDurations(sentences: SentenceChunk[], durations: number[]): void {
 		this.currentSentenceChunks = sentences;
@@ -61,8 +49,6 @@ export class WordHighlighter {
 			const audioDuration = durations[idx] || 1.0;
 			return this.computeWordTimings(sentence.words, audioDuration);
 		});
-		// Rebuild document position map whenever sentences are set
-		this.buildDocumentPositionMap();
 	}
 
 	/**
@@ -101,25 +87,22 @@ export class WordHighlighter {
 		if (this.activeView !== view) {
 			this.clearHighlight();
 			this.activeView = view;
-			this.invalidateMap();
+			this.activeBlockEl = null;
+			this.activeBlockTextNodes = [];
+			this.activeBlockSentenceIndex = -1;
 		}
-	}
-
-	public invalidateMap(): void {
-		this.fullDocText = "";
-		this.textNodeSegments = [];
-		this.sentenceMap = [];
-		this.isMapBuilt = false;
 	}
 
 	/**
-	 * Scans the active document view ONCE to build a single global character-level map.
-	 * All sentences are anchored monotonically forward from 0 to N.
+	 * Pins the specific DOM block container (<p>, <li>, <h*>, blockquote, or .cm-line)
+	 * for the active sentence and checks viewport visibility.
 	 */
-	public buildDocumentPositionMap(): void {
-		if (!this.activeView || this.currentSentenceChunks.length === 0) {
-			return;
-		}
+	public setActiveSentence(sentenceIndex: number, sentenceChunk: SentenceChunk): void {
+		this.activeBlockSentenceIndex = sentenceIndex;
+		this.activeBlockEl = null;
+		this.activeBlockTextNodes = [];
+
+		if (!this.activeView) return;
 
 		const containerEl = this.activeView.containerEl;
 		if (!containerEl) return;
@@ -138,107 +121,58 @@ export class WordHighlighter {
 
 		if (!searchRoot) return;
 
-		// 1. Flatten all text nodes in reading container into a unified document string
-		const walker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_TEXT);
-		let node = walker.nextNode();
-		let accumulatedText = "";
-		const segments: TextNodeSegment[] = [];
+		// 1. Locate candidate block elements (<p>, <li>, <h1>-<h6>, blockquote, or .cm-line)
+		const blockSelectors = "p, li, h1, h2, h3, h4, h5, h6, blockquote, .cm-line";
+		const candidateBlocks = Array.from(searchRoot.querySelectorAll<HTMLElement>(blockSelectors));
 
+		// Find block containing key snippet of the sentence
+		const cleanSnippet = sentenceChunk.words
+			.slice(0, 4)
+			.map((w) => w.word.replace(/^[^\w]+|[^\w]+$/g, ""))
+			.filter((w) => w.length >= 2)
+			.join(" ");
+
+		let matchedBlock: HTMLElement | null = null;
+
+		if (cleanSnippet.length > 0) {
+			for (const block of candidateBlocks) {
+				const blockText = (block.textContent || "").toLowerCase();
+				if (blockText.includes(cleanSnippet.toLowerCase())) {
+					matchedBlock = block;
+					break;
+				}
+			}
+		}
+
+		// Fallback: match by first word if snippet was not found
+		if (!matchedBlock && sentenceChunk.words.length > 0) {
+			const firstWord = sentenceChunk.words[0].word.replace(/^[^\w]+|[^\w]+$/g, "").toLowerCase();
+			if (firstWord.length >= 2) {
+				for (const block of candidateBlocks) {
+					const blockText = (block.textContent || "").toLowerCase();
+					if (blockText.includes(firstWord)) {
+						matchedBlock = block;
+						break;
+					}
+				}
+			}
+		}
+
+		this.activeBlockEl = matchedBlock || searchRoot;
+
+		// 2. Cache text nodes strictly inside this active block
+		const walker = document.createTreeWalker(this.activeBlockEl, NodeFilter.SHOW_TEXT);
+		let node = walker.nextNode();
 		while (node) {
-			if (node.nodeType === Node.TEXT_NODE && node.textContent) {
-				const text = node.textContent;
-				const start = accumulatedText.length;
-				accumulatedText += text;
-				const end = accumulatedText.length;
-				segments.push({
-					node: node as Text,
-					charStart: start,
-					charEnd: end,
-				});
+			if (node.nodeType === Node.TEXT_NODE && node.textContent && node.textContent.trim().length > 0) {
+				this.activeBlockTextNodes.push(node as Text);
 			}
 			node = walker.nextNode();
 		}
 
-		this.fullDocText = accumulatedText;
-		this.textNodeSegments = segments;
-
-		// 2. Map every sentence monotonically forward
-		// Sentence K strictly begins searching at or after where Sentence K-1 matched.
-		const sentenceEntries: SentenceMapEntry[] = [];
-		let globalDocCursor = 0;
-		const docLower = accumulatedText.toLowerCase();
-
-		for (const sentence of this.currentSentenceChunks) {
-			const cleanSentence = sentence.text.trim();
-			if (!cleanSentence) {
-				sentenceEntries.push({ sentenceIndex: sentence.sentenceIndex, charStart: globalDocCursor, charEnd: globalDocCursor });
-				continue;
-			}
-
-			// Try matching full sentence starting strictly from globalDocCursor
-			let matchedStart = docLower.indexOf(cleanSentence.toLowerCase(), globalDocCursor);
-
-			// If exact full sentence punctuation differed, search by first 3 words
-			if (matchedStart === -1 && sentence.words.length >= 2) {
-				const anchorWords = sentence.words
-					.slice(0, 3)
-					.map((w) => w.word.replace(/^[^\w]+|[^\w]+$/g, ""))
-					.filter((w) => w.length >= 2)
-					.join(" ");
-
-				if (anchorWords) {
-					matchedStart = docLower.indexOf(anchorWords.toLowerCase(), globalDocCursor);
-				}
-			}
-
-			// Fallback: search by single first word if still not found
-			if (matchedStart === -1 && sentence.words.length > 0) {
-				const firstWord = sentence.words[0].word.replace(/^[^\w]+|[^\w]+$/g, "");
-				if (firstWord.length >= 2) {
-					matchedStart = docLower.indexOf(firstWord.toLowerCase(), globalDocCursor);
-				}
-			}
-
-			// If match was found forward, lock it in and advance cursor
-			if (matchedStart !== -1) {
-				const matchedEnd = matchedStart + cleanSentence.length;
-				sentenceEntries.push({
-					sentenceIndex: sentence.sentenceIndex,
-					charStart: matchedStart,
-					charEnd: matchedEnd,
-				});
-				globalDocCursor = matchedStart; // Advance search head forward
-			} else {
-				// Anchor at current cursor without regressing
-				sentenceEntries.push({
-					sentenceIndex: sentence.sentenceIndex,
-					charStart: globalDocCursor,
-					charEnd: globalDocCursor + cleanSentence.length,
-				});
-			}
-		}
-
-		this.sentenceMap = sentenceEntries;
-		this.isMapBuilt = true;
-	}
-
-	/**
-	 * Called when a new sentence starts playback to prime the viewport.
-	 */
-	public setActiveSentence(sentenceIndex: number, sentenceChunk: SentenceChunk): void {
-		if (!this.isMapBuilt || this.sentenceMap.length <= sentenceIndex) {
-			this.buildDocumentPositionMap();
-		}
-
-		const entry = this.sentenceMap[sentenceIndex];
-		if (!entry) return;
-
-		// Center the sentence in the viewport smoothly if needed
-		if (this.autoScrollEnabled) {
-			const sentenceRange = this.createRangeFromOffsets(entry.charStart, entry.charEnd);
-			if (sentenceRange) {
-				this.ensureRangeVisibleInViewport(sentenceRange, false);
-			}
+		// 3. Smoothly center the block in viewport if autoScroll is enabled
+		if (this.autoScrollEnabled && this.activeBlockEl) {
+			this.ensureVisibleInViewport(this.activeBlockEl, true);
 		}
 	}
 
@@ -253,8 +187,9 @@ export class WordHighlighter {
 			return;
 		}
 
-		if (!this.isMapBuilt || this.sentenceMap.length === 0) {
-			this.buildDocumentPositionMap();
+		// Ensure active block is pinned
+		if (this.activeBlockSentenceIndex !== sentenceIndex || !this.activeBlockEl) {
+			this.setActiveSentence(sentenceIndex, sentenceChunk);
 		}
 
 		// Find which word corresponds to currentElapsedSeconds
@@ -282,49 +217,73 @@ export class WordHighlighter {
 		this.lastHighlightedSentence = sentenceIndex;
 		this.lastHighlightedWord = activeWordIndex;
 
-		this.applyHighlight(sentenceIndex, activeWordIndex, targetWord, sentenceChunk);
+		this.applyHighlight(activeWordIndex, targetWord.word, sentenceChunk);
 	}
 
 	/**
-	 * Highlights targetWord monotonically using the Global Document Position Map.
+	 * Highlights targetWord strictly within the pinned active block container.
 	 */
-	private applyHighlight(sentenceIndex: number, wordIndex: number, targetWord: WordOffset, sentenceChunk: SentenceChunk): void {
-		if (!this.activeView || this.textNodeSegments.length === 0) {
+	private applyHighlight(wordIndex: number, targetWord: string, sentenceChunk: SentenceChunk): void {
+		if (!this.activeView || !this.activeBlockEl) {
 			return;
 		}
 
-		const sentenceEntry = this.sentenceMap[sentenceIndex];
-		if (!sentenceEntry) {
-			return;
-		}
-
-		const cleanWord = targetWord.word.replace(/^[^\w]+|[^\w]+$/g, "");
+		const cleanWord = targetWord.replace(/^[^\w]+|[^\w]+$/g, "");
 		if (!cleanWord) return;
 
-		// Calculate exact global target character range
-		const sentenceStart = sentenceEntry.charStart;
-		const targetCharStart = sentenceStart + targetWord.charStart;
-		const targetCharEnd = sentenceStart + targetWord.charEnd;
-
-		// 1. Try direct global character range first
-		let targetRange = this.createRangeFromOffsets(targetCharStart, targetCharEnd);
-
-		// Verify the mapped range contains the target word
-		if (targetRange) {
-			const rangeText = targetRange.toString().trim().toLowerCase();
-			if (!rangeText.includes(cleanWord.toLowerCase())) {
-				targetRange = null; // Minor offset drift; fall through to forward scan within sentence bounds
+		// Calculate occurrence index of cleanWord in sentence up to wordIndex
+		let targetOccurrence = 0;
+		for (let i = 0; i < wordIndex; i++) {
+			const prev = sentenceChunk.words[i]?.word.replace(/^[^\w]+|[^\w]+$/g, "");
+			if (prev && prev.toLowerCase() === cleanWord.toLowerCase()) {
+				targetOccurrence++;
 			}
 		}
 
-		// 2. Fallback: Search forward within the sentence's global character bounds
+		// Search strictly inside cached text nodes of active block
+		let currentOccurrence = 0;
+		let targetRange: Range | null = null;
+
+		for (const textNode of this.activeBlockTextNodes) {
+			const text = textNode.textContent || "";
+			const wordRegex = new RegExp(`\\b${this.escapeRegExp(cleanWord)}\\b`, "gi");
+			let match: RegExpExecArray | null;
+
+			while ((match = wordRegex.exec(text)) !== null) {
+				if (currentOccurrence === targetOccurrence) {
+					const range = document.createRange();
+					range.setStart(textNode, match.index);
+					range.setEnd(textNode, match.index + match[0].length);
+					targetRange = range;
+					break;
+				}
+				currentOccurrence++;
+			}
+			if (targetRange) break;
+		}
+
+		// Fallback: substring matching if punctuation/formatting broke boundary
 		if (!targetRange) {
-			const sentenceSlice = this.fullDocText.slice(sentenceStart, sentenceEntry.charEnd + 40);
-			const localIdx = sentenceSlice.toLowerCase().indexOf(cleanWord.toLowerCase());
-			if (localIdx !== -1) {
-				const resolvedStart = sentenceStart + localIdx;
-				const resolvedEnd = resolvedStart + cleanWord.length;
-				targetRange = this.createRangeFromOffsets(resolvedStart, resolvedEnd);
+			currentOccurrence = 0;
+			for (const textNode of this.activeBlockTextNodes) {
+				const text = textNode.textContent || "";
+				let searchPos = 0;
+
+				while (searchPos < text.length) {
+					const idx = text.toLowerCase().indexOf(cleanWord.toLowerCase(), searchPos);
+					if (idx === -1) break;
+
+					if (currentOccurrence === targetOccurrence) {
+						const range = document.createRange();
+						range.setStart(textNode, idx);
+						range.setEnd(textNode, idx + cleanWord.length);
+						targetRange = range;
+						break;
+					}
+					currentOccurrence++;
+					searchPos = idx + cleanWord.length;
+				}
+				if (targetRange) break;
 			}
 		}
 
@@ -332,80 +291,48 @@ export class WordHighlighter {
 			this.currentHighlightRange = targetRange;
 			this.applyRangeHighlight(targetRange);
 
-			// Viewport threshold check: check bounding box of the WORD
+			// Viewport threshold check: only scroll if the word nears top/bottom margins
 			if (this.autoScrollEnabled) {
-				this.ensureRangeVisibleInViewport(targetRange, false);
+				const nodeParent = targetRange.commonAncestorContainer.parentElement;
+				if (nodeParent) {
+					this.ensureVisibleInViewport(nodeParent, false);
+				}
 			}
 		}
 	}
 
 	/**
-	 * Builds a DOM Range from absolute character offsets within fullDocText in O(N) or binary search.
+	 * Checks if an element is comfortably inside the visible viewport.
+	 * Only scrolls if element is near the edges or outside, rate-limited to avoid jitter.
 	 */
-	private createRangeFromOffsets(startChar: number, endChar: number): Range | null {
-		let startNode: Text | null = null;
-		let startOffset = 0;
-		let endNode: Text | null = null;
-		let endOffset = 0;
-
-		for (const seg of this.textNodeSegments) {
-			if (!startNode && startChar >= seg.charStart && startChar <= seg.charEnd) {
-				startNode = seg.node;
-				startOffset = Math.min(seg.node.length, startChar - seg.charStart);
-			}
-			if (!endNode && endChar >= seg.charStart && endChar <= seg.charEnd) {
-				endNode = seg.node;
-				endOffset = Math.min(seg.node.length, endChar - seg.charStart);
-			}
-			if (startNode && endNode) break;
-		}
-
-		if (!startNode || !endNode) {
-			return null;
-		}
-
-		try {
-			const range = document.createRange();
-			range.setStart(startNode, startOffset);
-			range.setEnd(endNode, endOffset);
-			return range;
-		} catch {
-			return null;
-		}
-	}
-
-	/**
-	 * Checks if the highlighted WORD range is comfortably inside the viewport.
-	 * Only scrolls if the word moves into the top 15% or bottom 15% margin.
-	 */
-	private ensureRangeVisibleInViewport(range: Range, forceScroll = false): void {
+	private ensureVisibleInViewport(element: HTMLElement, forceScroll = false): void {
 		const now = Date.now();
-		// Throttle viewport scrolling to avoid micro-jitter during continuous speech
-		if (!forceScroll && now - this.lastScrollTimestamp < 1500) {
+		// Throttle viewport scrolling to avoid micro-jitter during speech
+		if (!forceScroll && now - this.lastScrollTimestamp < 1200) {
 			return;
 		}
 
 		try {
-			const rect = range.getBoundingClientRect();
-			if (!rect || (rect.width === 0 && rect.height === 0)) return;
-
+			const rect = element.getBoundingClientRect();
 			const windowHeight = window.innerHeight || document.documentElement.clientHeight;
-			// 15% margins on top and bottom for smooth reading comfort
-			const topMargin = Math.max(80, windowHeight * 0.15);
-			const bottomMargin = Math.min(windowHeight - 80, windowHeight * 0.85);
+
+			// Define comfortable top and bottom padding zones (120px)
+			const topMargin = 120;
+			const bottomMargin = windowHeight - 120;
 
 			const isComfortablyVisible = rect.top >= topMargin && rect.bottom <= bottomMargin;
 
 			if (!isComfortablyVisible || forceScroll) {
 				this.lastScrollTimestamp = now;
-				const parentEl = range.commonAncestorContainer.parentElement;
-				if (parentEl && typeof parentEl.scrollIntoView === "function") {
-					parentEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-				}
+				element.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
 			}
 		} catch {
-			// Safely ignore if range container is detached from active viewport DOM
+			// Expected: Element may be detached from active viewport DOM
 		}
+	}
+
+	private escapeRegExp(string: string): string {
+		return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	}
 
 	/**
@@ -430,7 +357,7 @@ export class WordHighlighter {
 			range.surroundContents(span);
 			this.fallbackSpanEl = span;
 		} catch {
-			// Safely ignore if range crosses node boundaries
+			// Expected: Range may cross node boundaries
 		}
 	}
 
@@ -450,12 +377,15 @@ export class WordHighlighter {
 		this.currentHighlightRange = null;
 		this.lastHighlightedSentence = -1;
 		this.lastHighlightedWord = -1;
+		this.activeBlockEl = null;
+		this.activeBlockTextNodes = [];
+		this.activeBlockSentenceIndex = -1;
 
 		if (this.isCssHighlightSupported()) {
 			try {
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HIGHLIGHT_NAME);
 			} catch {
-				// Safely ignore if highlight registration was already cleared
+				// Expected: Highlight registration was already cleared
 			}
 		}
 

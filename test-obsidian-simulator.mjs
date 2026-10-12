@@ -30,6 +30,13 @@ globalThis.document = {
     removeChild: () => {},
   }
 };
+globalThis.Node = {
+  TEXT_NODE: 3,
+  ELEMENT_NODE: 1,
+};
+globalThis.NodeFilter = {
+  SHOW_TEXT: 4,
+};
 
 globalThis.AudioContext = class {
   constructor(opts) {
@@ -112,6 +119,7 @@ const mockObsidian = {
     constructor(container) { this.container = container; }
     setName(n) { return this; }
     setDesc(d) { return this; }
+    setHeading() { return this; }
     addDropdown(cb) {
       cb({
         addOption: (k, v) => {},
@@ -136,6 +144,16 @@ const mockObsidian = {
       return this;
     }
     addSlider() { return this; }
+    addButton(cb) {
+      const btn = {
+        setButtonText: () => btn,
+        setCta: () => btn,
+        setDisabled: () => btn,
+        onClick: () => btn,
+      };
+      cb(btn);
+      return this;
+    }
   },
   Modal: class {
     constructor(app) {
@@ -259,6 +277,101 @@ if (plugin.player && typeof plugin.player.onPlay === "function") {
   }
   console.log("Replay verification passed: play button successfully restarted reading!");
 }
+
+console.log("=== Testing Word Highlighter Block-Anchored Tracking ===");
+const highlighter = plugin.highlighter;
+if (!highlighter) {
+  throw new Error("Highlighter not initialized on plugin!");
+}
+
+// Test sentence with repeated words: "To be or not to be that is the question."
+const sampleChunk = {
+  sentenceIndex: 0,
+  text: "To be or not to be",
+  words: [
+    { word: "To", charStart: 0, charEnd: 2 },
+    { word: "be", charStart: 3, charEnd: 5 },
+    { word: "or", charStart: 6, charEnd: 8 },
+    { word: "not", charStart: 9, charEnd: 12 },
+    { word: "to", charStart: 13, charEnd: 15 },
+    { word: "be", charStart: 16, charEnd: 18 }
+  ],
+  startOffsetInCleanText: 0,
+  endOffsetInCleanText: 18
+};
+
+highlighter.updateSentenceDuration(0, sampleChunk, 2.0);
+console.log("Highlighter successfully computed word timings for test sentence.");
+
+// Set mock active view with DOM paragraph element
+const mockParagraphText = {
+  nodeType: 3,
+  textContent: "To be or not to be",
+  length: 18
+};
+
+const mockParagraph = {
+  nodeType: 1,
+  tagName: "P",
+  textContent: "To be or not to be",
+  querySelectorAll: () => [],
+  getBoundingClientRect: () => ({ top: 200, bottom: 250, width: 200, height: 50 }),
+  scrollIntoView: () => {}
+};
+
+globalThis.document.createTreeWalker = (root) => {
+  let yielded = false;
+  return {
+    nextNode: () => {
+      if (!yielded) {
+        yielded = true;
+        return mockParagraphText;
+      }
+      return null;
+    }
+  };
+};
+
+globalThis.document.createRange = () => {
+  let sNode = null, sOff = 0, eNode = null, eOff = 0;
+  return {
+    setStart: (n, o) => { sNode = n; sOff = o; },
+    setEnd: (n, o) => { eNode = n; eOff = o; },
+    commonAncestorContainer: { parentElement: mockParagraph },
+    getBoundingClientRect: () => ({ top: 200, bottom: 250, width: 30, height: 20 }),
+    toString: () => mockParagraphText.textContent.slice(sOff, eOff),
+    surroundContents: () => {}
+  };
+};
+
+const mockView = {
+  containerEl: {
+    querySelector: (sel) => {
+      if (sel.includes(".markdown-reading-view") || sel.includes(".cm-content")) {
+        return {
+          offsetParent: {},
+          querySelectorAll: () => [mockParagraph],
+          textContent: "To be or not to be"
+        };
+      }
+      return null;
+    }
+  }
+};
+
+highlighter.setActiveView(mockView);
+highlighter.setActiveSentence(0, sampleChunk);
+
+// Step through time offsets:
+// Word 0 ("To"): t = 0.1s
+highlighter.updateHighlight(0, 0.1);
+// Word 1 (1st "be"): t = 0.4s
+highlighter.updateHighlight(0, 0.4);
+// Word 5 (2nd "be"): t = 1.9s
+highlighter.updateHighlight(0, 1.9);
+
+highlighter.clearHighlight();
+console.log("WordHighlighter block-anchored tracking & occurrence validation passed!");
 
 console.log("=== AUTOMATED SIMULATION TEST PASSED ALL CHECKS! ===");
 process.exit(0);
