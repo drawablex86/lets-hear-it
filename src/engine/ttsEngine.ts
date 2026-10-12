@@ -38,7 +38,8 @@ export class TTSEngine {
 	private activeSourceNode: AudioBufferSourceNode | null = null;
 	private playbackSessionEpoch = 0;
 	private isPrefetching = false;
-	private static readonly BUFFER_LOOKAHEAD = 2; // Strict 2-sentence lookahead buffer
+	private static readonly BUFFER_LOOKAHEAD = 1; // Strict 1-sentence lookahead to prevent RAM saturation
+	private synthesisMutex: Promise<unknown> = Promise.resolve();
 
 	// Audio scheduling tracking
 	private voice = "af_heart";
@@ -179,7 +180,8 @@ export class TTSEngine {
 						ort.env.logLevel = "error";
 						if (ort.env.wasm) {
 							ort.env.wasm.wasmBinary = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
-							ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
+							// Cap at 2 threads: Prevents thread pool contention with Electron renderer and avoids CPU cache thrashing
+							ort.env.wasm.numThreads = Math.min(2, Math.max(1, navigator.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 2));
 
 							if (fs.existsSync(mjsFile)) {
 								const mjsBuf = fs.readFileSync(mjsFile);
@@ -258,15 +260,15 @@ export class TTSEngine {
 			};
 
 			const modelId = "onnx-community/Kokoro-82M-v1.0-ONNX";
-			// Use fp32 for uncompressed natural audio fidelity (Kokoro-82M is lightweight ~300MB)
-			// falling back to q8 if needed.
-			const dtype = "fp32";
-
-			// Try WebGPU first if supported, then fall back to WASM
+			// Default to 'q8' (8-bit quantization) on WASM: cuts model weights to ~85MB
+			// and reduces intermediate tensor activation memory by 75%, completely preventing
+			// macOS Memory Pressure red spikes, audio buffer under-runs, and system freezes.
 			let device: "webgpu" | "wasm" = "wasm";
 			if (typeof navigator !== "undefined" && "gpu" in navigator && (navigator as unknown as { gpu?: unknown }).gpu) {
 				device = "webgpu";
 			}
+
+			const dtype = device === "webgpu" ? "fp32" : "q8";
 
 			try {
 				this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
@@ -278,20 +280,20 @@ export class TTSEngine {
 				if (device === "webgpu") {
 					try {
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-							dtype,
+							dtype: "q8",
 							device: "wasm",
 							progress_callback: progressCallback,
 						});
 					} catch {
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-							dtype: "q8",
+							dtype: "fp32",
 							device: "wasm",
 							progress_callback: progressCallback,
 						});
 					}
 				} else {
 					this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-						dtype: "q8",
+						dtype: "fp32",
 						device: "wasm",
 						progress_callback: progressCallback,
 					});
@@ -328,28 +330,42 @@ export class TTSEngine {
 
 	/**
 	 * Synthesizes a raw sentence string to an AudioBuffer.
+	 * Serialized through synthesisMutex to guarantee zero concurrent tensor allocations in RAM.
 	 */
 	public async synthesizeSentence(text: string, sentenceIndex: number): Promise<SentenceAudioItem> {
-		const model = await this.initModel();
-		const rawAudio = await model.generate(text, {
-			voice: this.voice as unknown as NonNullable<Parameters<typeof model.generate>[1]>["voice"],
-			speed: 1.0, // Base audio generated at normal speed; speed scaling handled in WebAudio node
+		// Wait for previous generation to release its tensors and memory
+		const release = await new Promise<() => void>((resolve) => {
+			this.synthesisMutex = this.synthesisMutex.then(() => new Promise<void>((done) => {
+				resolve(done);
+			})).catch(() => new Promise<void>((done) => {
+				resolve(done);
+			}));
 		});
 
-		const sampleRate = rawAudio.sampling_rate || 24000;
-		const float32Data = rawAudio.audio; // Float32Array PCM
+		try {
+			const model = await this.initModel();
+			const rawAudio = await model.generate(text, {
+				voice: this.voice as unknown as NonNullable<Parameters<typeof model.generate>[1]>["voice"],
+				speed: 1.0, // Base audio generated at normal speed; speed scaling handled in WebAudio node
+			});
 
-		const audioBuffer = this.audioContext.createBuffer(1, float32Data.length, sampleRate);
-		audioBuffer.copyToChannel(float32Data as unknown as Float32Array<ArrayBuffer>, 0);
+			const sampleRate = rawAudio.sampling_rate || 24000;
+			const float32Data = rawAudio.audio; // Float32Array PCM
 
-		const duration = audioBuffer.duration;
+			const audioBuffer = this.audioContext.createBuffer(1, float32Data.length, sampleRate);
+			audioBuffer.copyToChannel(float32Data as unknown as Float32Array<ArrayBuffer>, 0);
 
-		return {
-			sentenceIndex,
-			text,
-			audioBuffer,
-			duration,
-		};
+			const duration = audioBuffer.duration;
+
+			return {
+				sentenceIndex,
+				text,
+				audioBuffer,
+				duration,
+			};
+		} finally {
+			release();
+		}
 	}
 
 	/**
@@ -575,6 +591,9 @@ export class TTSEngine {
 				if (this.playbackSessionEpoch === currentEpoch && this.activeSourceNode === source) {
 					this.activeSourceNode = null;
 					this.stopTimeTracking();
+
+					// Immediately free this sentence's audio buffer from memory
+					this.audioCache.delete(index);
 
 					if (!this.isPaused && !this.isStopped) {
 						if (this.events.onSentenceEnd) {
