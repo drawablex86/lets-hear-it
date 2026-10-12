@@ -300,10 +300,14 @@ export class TTSEngine {
 			// "wasm" (Balanced CPU): Uses 8-bit quantization ('q8') on WASM SIMD.
 			const requestedDevice = this.hardwareAcceleration;
 			const isGpuSupported = typeof navigator !== "undefined" && "gpu" in navigator && !!(navigator as unknown as { gpu?: unknown }).gpu;
-			const device: "webgpu" | "wasm" = requestedDevice === "webgpu" && isGpuSupported ? "webgpu" : "wasm";
+			let actualDevice: "webgpu" | "wasm" = requestedDevice === "webgpu" && isGpuSupported ? "webgpu" : "wasm";
+
+			if (requestedDevice === "webgpu" && !isGpuSupported) {
+				new Notice("WebGPU is not supported by your hardware or browser. Using CPU WASM fallback mode.", 4000);
+			}
 
 			// WebGPU uses fp32 for studio-clean audio, while WASM uses q8
-			const dtype = device === "webgpu" ? "fp32" : "q8";
+			const dtype = actualDevice === "webgpu" ? "fp32" : "q8";
 
 			// Ensure ORT WebGPU powerPreference is set
 			if (ort?.env?.webgpu) {
@@ -313,13 +317,15 @@ export class TTSEngine {
 			try {
 				this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
 					dtype,
-					device,
+					device: actualDevice,
 					progress_callback: progressCallback,
 				});
 				this.patchKokoroModelForZeroLeaks(this.ttsModel);
 			} catch (err) {
-				console.warn(`[let's hear it] Failed to initialize model with device=${device}, dtype=${dtype}:`, err);
-				if (device === "webgpu") {
+				console.warn(`[let's hear it] Failed to initialize model with device=${actualDevice}, dtype=${dtype}:`, err);
+				if (actualDevice === "webgpu") {
+					actualDevice = "wasm";
+					new Notice("WebGPU initialization failed. Switched to CPU WASM compatibility mode.", 4000);
 					try {
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
 							dtype: "q8",
@@ -349,7 +355,8 @@ export class TTSEngine {
 				(downloadNotice as Notice).hide();
 			}
 
-			new Notice(`Kokoro voice model loaded (${device.toUpperCase()})!`, 2500);
+			const label = actualDevice === "webgpu" ? "WebGPU" : "CPU WASM Fallback";
+			new Notice(`Kokoro voice model loaded (${label})!`, 2500);
 			this.setState("idle", "Model ready");
 			return this.ttsModel;
 		})();

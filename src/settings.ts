@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS: LetsHearItSettings = {
 	hearingModeOnPlay: true,
 	autoScroll: true,
 	exportFolder: "",
-	hardwareAcceleration: "wasm",
+	hardwareAcceleration: "webgpu",
 };
 
 export interface VoiceOption {
@@ -195,10 +195,10 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Inference engine (Hardware acceleration)")
-			.setDesc("WebGPU leverages graphics hardware compute with studio-clean fp32 precision and explicit memory cleanup sweeps. CPU WASM runs 8-bit quantized speech on system CPU.")
+			.setDesc("WebGPU leverages graphics hardware compute with studio-clean fp32 precision and zero UI freezing. CPU WASM runs on system CPU as a compatibility fallback.")
 			.addDropdown((dropdown) => {
-				dropdown.addOption("webgpu", "WebGPU: Hardware Accelerated (fp32) — Fast & Studio Quality");
-				dropdown.addOption("wasm", "CPU WASM: Balanced (q8)");
+				dropdown.addOption("webgpu", "WebGPU: Fast & Studio Quality — Recommended");
+				dropdown.addOption("wasm", "CPU WASM: Compatibility Fallback (Slower, for machines without WebGPU)");
 				dropdown.setValue(this.plugin.settings.hardwareAcceleration);
 				dropdown.onChange(async (val) => {
 					const accel = val as "wasm" | "webgpu";
