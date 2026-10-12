@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, Notice, SettingDefinitionItem } from "obsidian";
 import type LetsHearItPlugin from "./main";
 
 export interface LetsHearItSettings {
@@ -73,48 +73,190 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
+	override getControlValue(key: string): unknown {
+		return (this.plugin.settings as any)[key];
+	}
 
-		// Local Speech Engine Setup Section
-		new Setting(containerEl).setName("Local Speech Engine Setup").setHeading();
+	override async setControlValue(key: string, value: unknown): Promise<void> {
+		(this.plugin.settings as any)[key] = value;
+		await this.plugin.saveSettings();
 
+		if (key === "voice") {
+			this.plugin.getTTSEngine()?.setVoice(value as string);
+		} else if (key === "playbackSpeed") {
+			this.plugin.getTTSEngine()?.setPlaybackRate(Number(value));
+		} else if (key === "autoScroll") {
+			this.plugin.getHighlighter()?.setAutoScroll(Boolean(value));
+		} else if (key === "hardwareAcceleration") {
+			const engine = this.plugin.getTTSEngine();
+			if (engine) {
+				await engine.switchEngine(value as "wasm" | "webgpu");
+			}
+		}
+	}
+
+	/**
+	 * Declarative setting definitions for Obsidian 1.13.0+ native search indexing.
+	 */
+	override getSettingDefinitions(): SettingDefinitionItem[] {
+		const voiceOptions: Record<string, string> = {};
+		for (const v of KOKORO_VOICES) {
+			voiceOptions[v.id] = `${v.name} (${v.accent} ${v.gender})`;
+		}
+
+		return [
+			{
+				type: "group",
+				heading: "Local Speech Engine Setup",
+				items: [
+					{
+						name: "Offline neural engine",
+						desc: "Local ONNX WebAssembly engine files (~21 MB) stored directly inside the plugin folder for private, offline synthesis.",
+						render: (setting: Setting) => {
+							this.renderEngineSetting(setting);
+						},
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Speech & Voice",
+				items: [
+					{
+						name: "Voice",
+						desc: "Choose your preferred neural speech voice. Kokoro includes 28 natural voices.",
+						control: {
+							type: "dropdown",
+							key: "voice",
+							options: voiceOptions,
+						},
+					},
+					{
+						name: "Default playback speed",
+						desc: "Default speed rate for speech synthesis.",
+						control: {
+							type: "dropdown",
+							key: "playbackSpeed",
+							options: {
+								"0.75": "0.75x",
+								"1": "1.0x",
+								"1.25": "1.25x",
+								"1.5": "1.5x",
+								"1.75": "1.75x",
+								"2": "2.0x",
+							},
+						},
+					},
+					{
+						name: "Auto-switch to hearing mode (reading view)",
+						desc: "Automatically switches the active note to Reading View during playback for distraction-free listening and rock-solid highlight tracking.",
+						control: {
+							type: "toggle",
+							key: "hearingModeOnPlay",
+						},
+					},
+					{
+						name: "Auto-scroll during playback",
+						desc: "Smoothly centers the current sentence in the viewport when it nears the top or bottom edges.",
+						control: {
+							type: "toggle",
+							key: "autoScroll",
+						},
+					},
+					{
+						name: "Audio export folder",
+						desc: "The vault folder path where generated MP3 files will be saved. Leave empty to save directly to the root of the vault.",
+						control: {
+							type: "text",
+							key: "exportFolder",
+							placeholder: "e.g. Audio/Recordings (leave blank for vault root)",
+						},
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Advanced Engine & Performance",
+				items: [
+					{
+						name: "Inference engine (Hardware acceleration)",
+						desc: "WebGPU leverages graphics hardware compute with studio-clean fp32 precision and zero UI freezing. CPU WASM runs on system CPU as a compatibility fallback.",
+						control: {
+							type: "dropdown",
+							key: "hardwareAcceleration",
+							options: {
+								webgpu: "WebGPU: Fast & Studio Quality — Recommended",
+								wasm: "CPU WASM: Compatibility Fallback (Slower, for machines without WebGPU)",
+							},
+						},
+					},
+				],
+			},
+		];
+	}
+
+	private renderEngineSetting(setting: Setting): void {
 		const status = this.plugin.wasmAssetManager.checkStatus();
 		const mbSize = (status.wasmSize / (1024 * 1024)).toFixed(1);
 		const statusDesc = status.isReady
 			? `🟢 Ready for offline neural synthesis (${mbSize} MB local engine installed).`
 			: "🟠 Setup required. Offline ONNX WebAssembly engine files (~21 MB) are not yet downloaded in the plugin folder.";
 
-		const engineSetting = new Setting(containerEl)
+		setting
 			.setName("Offline neural engine")
-			.setDesc(statusDesc);
+			.setDesc(statusDesc)
+			.clear();
 
-		engineSetting.addButton((btn) => {
+		setting.addButton((btn) => {
 			btn.setButtonText(status.isReady ? "Re-download / Verify Engine" : "Download Local Engine (~21 MB)")
 				.setCta(!status.isReady)
 				.onClick(async () => {
 					btn.setDisabled(true);
 					btn.setButtonText("Downloading engine...");
-					const originalDesc = engineSetting.descEl.textContent ?? "";
-					
-					const success = await this.plugin.wasmAssetManager.downloadAssets((pct, msg) => {
-						engineSetting.setDesc(`⏳ ${msg} (${pct}%)`);
-					});
 
-					btn.setDisabled(false);
-					if (success) {
-						const updatedStatus = this.plugin.wasmAssetManager.checkStatus();
-						const updatedMb = (updatedStatus.wasmSize / (1024 * 1024)).toFixed(1);
-						engineSetting.setDesc(`🟢 Ready for offline neural synthesis (${updatedMb} MB local engine installed).`);
-						btn.setButtonText("Re-download / Verify Engine");
-						btn.setCta(false);
-					} else {
-						engineSetting.setDesc(originalDesc);
+					// Stream progress via persistent Notice (duration 0) to avoid settings DOM churn
+					const downloadNotice = new Notice("Downloading offline speech engine (0%)...", 0);
+
+					try {
+						const success = await this.plugin.wasmAssetManager.downloadAssets((pct) => {
+							downloadNotice.setMessage(`Downloading offline speech engine (${pct}%)...`);
+						});
+
+						downloadNotice.hide();
+
+						if (success) {
+							new Notice("Local neural speech engine installed successfully!", 5000);
+							const updatedStatus = this.plugin.wasmAssetManager.checkStatus();
+							const updatedMb = (updatedStatus.wasmSize / (1024 * 1024)).toFixed(1);
+							setting.setDesc(`🟢 Ready for offline neural synthesis (${updatedMb} MB local engine installed).`);
+							btn.setButtonText("Re-download / Verify Engine");
+							btn.setCta(false);
+						} else {
+							new Notice("Failed to download speech engine files. Please check internet connection.", 5000);
+							btn.setButtonText("Retry Download");
+						}
+					} catch (err) {
+						downloadNotice.hide();
+						new Notice(`Error downloading speech engine: ${err instanceof Error ? err.message : String(err)}`, 5000);
 						btn.setButtonText("Retry Download");
+					} finally {
+						btn.setDisabled(false);
 					}
 				});
 		});
+	}
+
+	/**
+	 * Fallback display for Obsidian versions < 1.13.0 or testing simulators where getSettingDefinitions is not invoked by the host.
+	 */
+	override display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		// Local Speech Engine Setup Section
+		new Setting(containerEl).setName("Local Speech Engine Setup").setHeading();
+		const engineSetting = new Setting(containerEl);
+		this.renderEngineSetting(engineSetting);
 
 		new Setting(containerEl).setName("Speech & Voice").setHeading();
 
@@ -128,9 +270,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 				}
 				dropdown.setValue(this.plugin.settings.voice);
 				dropdown.onChange(async (val) => {
-					this.plugin.settings.voice = val;
-					await this.plugin.saveSettings();
-					this.plugin.getTTSEngine()?.setVoice(val);
+					await this.setControlValue("voice", val);
 				});
 			});
 
@@ -145,10 +285,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 				}
 				dropdown.setValue(this.plugin.settings.playbackSpeed.toString());
 				dropdown.onChange(async (val) => {
-					const speed = parseFloat(val);
-					this.plugin.settings.playbackSpeed = speed;
-					await this.plugin.saveSettings();
-					this.plugin.getTTSEngine()?.setPlaybackRate(speed);
+					await this.setControlValue("playbackSpeed", parseFloat(val));
 				});
 			});
 
@@ -159,8 +296,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.hearingModeOnPlay);
 				toggle.onChange(async (val) => {
-					this.plugin.settings.hearingModeOnPlay = val;
-					await this.plugin.saveSettings();
+					await this.setControlValue("hearingModeOnPlay", val);
 				});
 			});
 
@@ -171,9 +307,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 			.addToggle((toggle) => {
 				toggle.setValue(this.plugin.settings.autoScroll);
 				toggle.onChange(async (val) => {
-					this.plugin.settings.autoScroll = val;
-					await this.plugin.saveSettings();
-					this.plugin.getHighlighter()?.setAutoScroll(val);
+					await this.setControlValue("autoScroll", val);
 				});
 			});
 
@@ -185,8 +319,7 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 				text.setPlaceholder("e.g. Audio/Recordings (leave blank for vault root)")
 					.setValue(this.plugin.settings.exportFolder)
 					.onChange(async (val) => {
-						this.plugin.settings.exportFolder = val.trim();
-						await this.plugin.saveSettings();
+						await this.setControlValue("exportFolder", val.trim());
 					});
 			});
 
@@ -201,14 +334,9 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 				dropdown.addOption("wasm", "CPU WASM: Compatibility Fallback (Slower, for machines without WebGPU)");
 				dropdown.setValue(this.plugin.settings.hardwareAcceleration);
 				dropdown.onChange(async (val) => {
-					const accel = val as "wasm" | "webgpu";
-					this.plugin.settings.hardwareAcceleration = accel;
-					await this.plugin.saveSettings();
-					const engine = this.plugin.getTTSEngine();
-					if (engine) {
-						await engine.switchEngine(accel);
-					}
+					await this.setControlValue("hardwareAcceleration", val as "wasm" | "webgpu");
 				});
 			});
 	}
 }
+

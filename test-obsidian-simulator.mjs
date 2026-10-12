@@ -120,6 +120,7 @@ const mockObsidian = {
     setName(n) { return this; }
     setDesc(d) { return this; }
     setHeading() { return this; }
+    clear() { return this; }
     addDropdown(cb) {
       cb({
         addOption: (k, v) => {},
@@ -259,8 +260,23 @@ if (nanCount > 0) {
 }
 console.log("Audio data integrity verified: 0 NaN values.");
 
-console.log("=== Testing Settings Tab Display ===");
+console.log("=== Testing Settings Tab Display & Declarative Definitions ===");
 plugin.settingTab.display();
+
+if (typeof plugin.settingTab.getSettingDefinitions === "function") {
+  const defs = plugin.settingTab.getSettingDefinitions();
+  console.log(`Verified getSettingDefinitions() returned ${defs.length} top-level groups!`);
+  if (!Array.isArray(defs) || defs.length < 3) {
+    throw new Error("getSettingDefinitions did not return expected setting groups!");
+  }
+  const engineGroup = defs.find(g => g.heading === "Local Speech Engine Setup");
+  if (!engineGroup || !engineGroup.items || typeof engineGroup.items[0].render !== "function") {
+    throw new Error("Local Speech Engine Setup group missing custom render definition!");
+  }
+  console.log("getSettingDefinitions() successfully validated for Obsidian 1.13.0+ search indexing!");
+} else {
+  throw new Error("plugin.settingTab.getSettingDefinitions is missing!");
+}
 
 console.log("=== Testing Playback Lifecycle & Restart Button ===");
 let readNotesCalled = 0;
