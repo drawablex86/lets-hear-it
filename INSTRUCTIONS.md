@@ -46,3 +46,33 @@ The `v0/` directory in the repository root represents the official distribution 
 4. **Authorship & Metadata:**
    - `manifest.json`, `package.json`, and `v0/manifest.json` must consistently specify `"author": "Rahul Rajeev"`.
 
+---
+
+## 5. Official Release Protocol & Cryptographic Pipeline
+Obsidian's automated review system audits release assets for **GitHub Artifact Attestations** (SLSA v1 build provenance). Manual uploads lack cryptographic provenance and trigger review rejection warnings.
+
+Every agent tasked with creating a release MUST adhere to the following protocol:
+
+1. **Synchronized 4-Way Version Bump**:
+   Always bump the version across all 4 files simultaneously:
+   - `package.json`
+   - `package-lock.json`
+   - `manifest.json`
+   - `v0/manifest.json`
+
+2. **Trigger Releases Exclusively via Git Tags**:
+   - **DO NOT** create releases or upload assets via `gh release create <tag> main.js ...` or the GitHub Web UI.
+   - **DO** push an annotated Git tag to trigger the cryptographic GitHub Actions pipeline:
+     ```bash
+     git tag -a X.Y.Z -m "Release X.Y.Z"
+     git push origin X.Y.Z
+     ```
+   - The workflow (`.github/workflows/release.yml`) builds the assets in a clean container, signs them with Sigstore via `actions/attest-build-provenance@v2`, and attaches them to the release.
+
+3. **Mandatory Attestation Verification**:
+   After pushing the tag, wait for the workflow to complete and verify provenance:
+   ```bash
+   gh attestation verify main.js -R drawablex86/lets-hear-it
+   ```
+   *See [.agents/skills/obsidian-local-inference/references/github-cryptographic-release-pipeline.md](file:///Users/rahulrajeev/Downloads/lets-hear-it/.agents/skills/obsidian-local-inference/references/github-cryptographic-release-pipeline.md) for full technical details.*
+

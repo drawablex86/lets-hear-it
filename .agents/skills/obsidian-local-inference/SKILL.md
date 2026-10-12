@@ -148,9 +148,22 @@ This skill documents the exact architectural patterns, build transformations, of
 
 ---
 
+### Trap 13: Release Asset Tampering Warnings & Missing GitHub Artifact Attestations
+- **The Issue**: When publishing Obsidian releases, Obsidian's automated reviewer checks whether release assets (`main.js`, `manifest.json`, `styles.css`) have verified build provenance. If release files are built locally on a developer machine and attached manually via `gh release create` or web upload, the scanner flags:
+  `Warning: Missing GitHub artifact attestations for release assets: main.js, styles.css`.
+- **The Solution**:
+  1. Never manually upload release binaries.
+  2. Implement an automated GitHub Actions release workflow triggered on Git tag push (`tags: ['*']`) with `id-token: write` and `attestations: write` permissions.
+  3. Use `actions/attest-build-provenance@v2` immediately after building the production bundle.
+  4. Always verify the published assets via `gh attestation verify main.js -R <owner>/<repo>`.
+  *See [references/github-cryptographic-release-pipeline.md](./references/github-cryptographic-release-pipeline.md).*
+
+---
+
 ## 📁 Skill Reference Index
 
 - [Obsidian Community Release Checklist](./references/obsidian-community-release-checklist.md) — Comprehensive guide to passing automated review audits and adhering to official plugin guidelines.
+- [GitHub Cryptographic Release Pipeline](./references/github-cryptographic-release-pipeline.md) — Complete protocol for Sigstore artifact attestations and automated tag-based releases.
 - [WebGPU Memory Lifecycle & Pipelining](./references/webgpu-memory-lifecycle.md) — Complete guide to zero-leak WebGPU inference, cooperative V8 GC, and sliding lookahead queues.
 - [esbuild WASM Patching Guide](./references/esbuild-wasm-patching.md) — Exact AST/regex replacers for local WASM in Electron.
 - [Electron Sandbox Rules](./references/electron-sandbox-rules.md) — Permissions, renderer flags, Direct Filesystem disclosures, and In-Settings Asset Downloaders.

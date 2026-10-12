@@ -251,3 +251,44 @@ Never set default hotkeys for commands. Default hotkeys cause collisions between
    You do not need to create a release to verify your plugin! Click the **"Review branch"** button on `community.obsidian.md` and enter your feature branch name (e.g. `fix-synchronized-word-highlighter`). The review bot will run the full test suite against your branch immediately.
 3. **Publishing the Release**:
    Once verified, bump to the next patch version, update `package-lock.json`, tag, and release.
+
+---
+
+## 10. Cryptographic Build Attestation & Release Protocol
+
+Obsidian audits whether assets have verified SLSA v1 build provenance:
+- ❌ **Do NOT manually upload release assets** via `gh release create <tag> main.js ...` or the GitHub Web UI. This produces unattested release assets and triggers review warnings.
+- ✅ **Use GitHub Actions with `actions/attest-build-provenance`**:
+  ```yaml
+  permissions:
+    contents: write
+    id-token: write
+    attestations: write
+
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - run: npm ci
+    - run: npm run build
+    - run: node test-obsidian-simulator.mjs
+    - uses: actions/attest-build-provenance@v2
+      with:
+        subject-path: |
+          main.js
+          manifest.json
+          styles.css
+    - uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          main.js
+          manifest.json
+          styles.css
+  ```
+- **Post-Release Verification**:
+  ```bash
+  gh attestation verify main.js -R <owner>/<repo>
+  ```
+  Must output: `✓ Verification succeeded! Predicate: SLSA Provenance v1`.
+
