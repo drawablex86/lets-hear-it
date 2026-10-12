@@ -16,6 +16,7 @@ export default class LetsHearItPlugin extends Plugin {
 	private player: FloatingPlayer | null = null;
 	private highlighter: WordHighlighter | null = null;
 	private currentSentences: SentenceChunk[] = [];
+	private ribbonEarEl: HTMLElement | null = null;
 
 	async onload() {
 		// Load plugin settings
@@ -73,7 +74,7 @@ export default class LetsHearItPlugin extends Plugin {
 		this.highlighter.setAutoScroll(this.settings.autoScroll);
 
 		// 5. Add ribbon icon to left sidebar with playback toggle
-		this.addRibbonIcon(
+		this.ribbonEarEl = this.addRibbonIcon(
 			EAR_ICON_ID,
 			"let's hear it: Read current note",
 			async () => {
@@ -227,6 +228,18 @@ export default class LetsHearItPlugin extends Plugin {
 				}
 			})
 		);
+
+		// 11. Deferred background model pre-warming during idle time
+		this.app.workspace.onLayoutReady(() => {
+			window.setTimeout(() => {
+				const status = this.wasmAssetManager.checkStatus();
+				if (status.isReady) {
+					void this.ensureAudioContext()
+						.then(() => this.ttsEngine?.prewarm())
+						.catch(() => {});
+				}
+			}, 3000);
+		});
 	}
 
 	onunload() {
@@ -452,40 +465,42 @@ export default class LetsHearItPlugin extends Plugin {
 		if (this.isStartingPlayback) return;
 		this.isStartingPlayback = true;
 
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) {
+			this.isStartingPlayback = false;
+			new Notice("No active markdown note to read from.");
+			return;
+		}
+
+		const selectedText = this.getActiveSelection(activeView);
+		if (!selectedText || !selectedText.trim()) {
+			this.isStartingPlayback = false;
+			new Notice("No text selected to read.");
+			return;
+		}
+
+		// 1. Instant UI Feedback: Mount/unhide player immediately with preparing state
+		const noteTitle = activeView.file?.basename ?? "Note";
+		await this.ensureAudioContext();
+		this.ribbonEarEl?.addClass("lets-hear-it-loading-pulse");
+		this.player?.showPreparing("selection", noteTitle);
+
 		try {
 			const engineReady = await this.ensureEngineReady();
 			if (!engineReady) {
+				this.player?.hide();
 				return;
 			}
-
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!activeView) {
-				new Notice("No active markdown note to read from.");
-				return;
-			}
-
-			const selectedText = this.getActiveSelection(activeView);
-			if (!selectedText || !selectedText.trim()) {
-				new Notice("No text selected to read.");
-				return;
-			}
-
-			await this.ensureAudioContext();
 
 			if (this.highlighter) {
 				this.highlighter.setActiveView(activeView);
 				this.highlighter.clearHighlight();
 			}
 
-			// Show floating player configured for selection mode
-			if (this.player) {
-				this.player.setPlaybackScope("selection");
-				this.player.show();
-			}
-
 			const { sentences } = cleanMarkdownForSpeech(selectedText);
 			if (sentences.length === 0) {
 				new Notice("No speakable text found in selection.");
+				this.player?.hide();
 				return;
 			}
 
@@ -495,6 +510,7 @@ export default class LetsHearItPlugin extends Plugin {
 			new Notice(`let's hear it: Reading selected portion (${sentences.length} sentences)`);
 			await this.ttsEngine?.play(sentenceTexts, 0);
 		} finally {
+			this.ribbonEarEl?.removeClass("lets-hear-it-loading-pulse");
 			this.isStartingPlayback = false;
 		}
 	}
@@ -503,15 +519,23 @@ export default class LetsHearItPlugin extends Plugin {
 		if (this.isStartingPlayback) return;
 		this.isStartingPlayback = true;
 
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) {
+			this.isStartingPlayback = false;
+			new Notice("No active markdown note to read.");
+			return;
+		}
+
+		// 1. Instant UI Feedback: Mount/unhide player immediately with preparing state
+		const noteTitle = activeView.file?.basename ?? "Note";
+		await this.ensureAudioContext();
+		this.ribbonEarEl?.addClass("lets-hear-it-loading-pulse");
+		this.player?.showPreparing("note", noteTitle);
+
 		try {
 			const engineReady = await this.ensureEngineReady();
 			if (!engineReady) {
-				return;
-			}
-
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!activeView) {
-				new Notice("No active markdown note to read.");
+				this.player?.hide();
 				return;
 			}
 
@@ -530,29 +554,23 @@ export default class LetsHearItPlugin extends Plugin {
 				}
 			}
 
-			await this.ensureAudioContext();
-
 			if (this.highlighter) {
 				this.highlighter.setActiveView(activeView);
 				this.highlighter.clearHighlight();
-			}
-
-			// Show floating player configured for full note mode
-			if (this.player) {
-				this.player.setPlaybackScope("note");
-				this.player.show();
 			}
 
 			// Extract note content from editor or view
 			const rawMarkdown = activeView.editor ? activeView.editor.getValue() : activeView.getViewData();
 			if (!rawMarkdown || !rawMarkdown.trim()) {
 				new Notice("Current note is empty.");
+				this.player?.hide();
 				return;
 			}
 
 			const { sentences } = cleanMarkdownForSpeech(rawMarkdown);
 			if (sentences.length === 0) {
 				new Notice("No speakable text found in current note.");
+				this.player?.hide();
 				return;
 			}
 
@@ -562,6 +580,7 @@ export default class LetsHearItPlugin extends Plugin {
 			new Notice(`let's hear it: Reading "${activeView.file?.basename ?? "note"}" (${sentences.length} sentences)`);
 			await this.ttsEngine?.play(sentenceTexts, 0);
 		} finally {
+			this.ribbonEarEl?.removeClass("lets-hear-it-loading-pulse");
 			this.isStartingPlayback = false;
 		}
 	}

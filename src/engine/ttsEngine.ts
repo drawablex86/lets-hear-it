@@ -310,6 +310,22 @@ export class TTSEngine {
 		return this.modelInitPromise;
 	}
 
+	public isModelLoaded(): boolean {
+		return this.ttsModel !== null;
+	}
+
+	/**
+	 * Pre-warms the Kokoro neural model during idle time to eliminate startup latency.
+	 */
+	public async prewarm(): Promise<void> {
+		if (this.ttsModel || this.isInitializing) return;
+		try {
+			await this.initModel();
+		} catch (err) {
+			console.warn("[let's hear it] Prewarm skipped or deferred:", err);
+		}
+	}
+
 	/**
 	 * Synthesizes a raw sentence string to an AudioBuffer.
 	 */

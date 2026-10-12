@@ -65,12 +65,28 @@
 
 .lets-hear-it-wave-bar {
 	width: 3px;
-	height: 3px;
+	height: var(--wave-height, 3px);
 	min-height: 3px;
 	border-radius: 9999px;
 	background: var(--interactive-accent);
 	transition: height 0.06s ease, opacity 0.08s ease;
-	opacity: 0.5;
+	opacity: var(--wave-opacity, 0.5);
+}
+
+/* Ribbon and Button Loading States */
+.lets-hear-it-loading-pulse {
+	animation: lets-hear-it-pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes lets-hear-it-pulse {
+	0%, 100% {
+		opacity: 0.4;
+		transform: scale(0.95);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1.08);
+	}
 }
 
 /* Controls Group */

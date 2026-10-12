@@ -51,8 +51,10 @@ export class WaveformVisualizer {
 
 	private resetBars(): void {
 		for (const bar of this.bars) {
-			bar.style.height = "3px";
-			bar.style.opacity = "0.5";
+			bar.setCssProps({
+				"--wave-height": "3px",
+				"--wave-opacity": "0.5",
+			});
 		}
 	}
 
@@ -87,20 +89,24 @@ export class WaveformVisualizer {
 
 				const bar = this.bars[i];
 				if (bar) {
-					bar.style.height = `${height}px`;
-					bar.style.opacity = opacity.toFixed(2);
+					bar.setCssProps({
+						"--wave-height": `${height.toFixed(1)}px`,
+						"--wave-opacity": opacity.toFixed(2),
+					});
 				}
 			}
 		} else if (state === "buffering" || state === "loading-model") {
-			// Subtle rhythmic pulse while buffering
+			// Subtle rhythmic pulse while buffering or loading
 			const time = Date.now() / 200;
 			for (let i = 0; i < this.barCount; i++) {
 				const wave = (Math.sin(time + i * 0.8) + 1) / 2;
 				const height = 4 + wave * 8;
 				const bar = this.bars[i];
 				if (bar) {
-					bar.style.height = `${height}px`;
-					bar.style.opacity = (0.4 + wave * 0.4).toFixed(2);
+					bar.setCssProps({
+						"--wave-height": `${height.toFixed(1)}px`,
+						"--wave-opacity": (0.4 + wave * 0.4).toFixed(2),
+					});
 				}
 			}
 		} else {

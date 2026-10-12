@@ -71,6 +71,33 @@ export class FloatingPlayer {
 		}
 	}
 
+	/**
+	 * Instantly mounts and displays the player with an immediate preparing status
+	 */
+	public showPreparing(scope: PlaybackScope, noteTitle = "Note"): void {
+		this.playbackScope = scope;
+		if (!this.containerEl) {
+			this.createDOM();
+		}
+
+		if (this.containerEl) {
+			this.containerEl.removeClass("is-hidden");
+			this.isVisible = true;
+
+			if (this.statusEl) {
+				this.statusEl.textContent = scope === "selection" ? "Preparing selection..." : "Preparing note...";
+			}
+			if (this.subtextEl) {
+				this.subtextEl.textContent = `Loading voice model for "${noteTitle}"...`;
+			}
+			if (this.playPauseBtn) {
+				setIcon(this.playPauseBtn, "loader-2");
+				this.playPauseBtn.addClass("lets-hear-it-loading-pulse");
+			}
+			this.waveform?.start();
+		}
+	}
+
 	public hide(): void {
 		if (this.containerEl) {
 			this.containerEl.addClass("is-hidden");
@@ -241,6 +268,7 @@ export class FloatingPlayer {
 		if (!this.containerEl) return;
 
 		if (this.playPauseBtn) {
+			this.playPauseBtn.removeClass("lets-hear-it-loading-pulse");
 			if (state === "playing") {
 				setIcon(this.playPauseBtn, "pause");
 			} else {
