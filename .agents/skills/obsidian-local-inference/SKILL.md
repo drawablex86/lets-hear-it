@@ -124,11 +124,36 @@ This skill documents the exact architectural patterns, build transformations, of
 
 ---
 
+### Trap 11: WebGPU Unmanaged VRAM Heap Leaks & The Throttled Cooperative GC Pattern
+- **The Issue**: V8's garbage collector only monitors small JavaScript object wrappers (tens of bytes) and has zero awareness of multi-megabyte native GPU buffers (`GPUBuffer`, unmanaged C++ driver arenas). In iterative inference (TTS, Whisper, token streaming), dangling tensors accumulate in driver memory without triggering V8 GC, causing RAM/VRAM to escalate rapidly into gigabytes and crashing the application.
+  Conversely, calling full synchronous garbage collection (`gc()`) on every single inference cycle blocks the JS thread for 50-150ms, starving WebAudio timers and producing severe memory pressure sawtooth spikes.
+- **The Solution**:
+  1. **Explicit Input/Intermediate Tensor Disposal**: Always intercept execution to invoke `.dispose()` on input tensors (`tensor.dispose()`) immediately after inference.
+  2. **Safe Dynamic Electron GC Activation**: Enable V8's GC in Electron via Node integration:
+     ```typescript
+     v8.setFlagsFromString("--expose_gc");
+     const gcFn = vm.runInNewContext("gc");
+     ```
+  3. **Debounced & Idle Sweep Scheduling**: NEVER run synchronous GC per-inference cycle. Throttle sweeps to idle frames (`requestIdleCallback`) or natural transition boundaries (pause, stop, batch completion) to maintain flat, steady memory curves with zero UI/audio lag.
+  *See [references/webgpu-memory-lifecycle.md](./references/webgpu-memory-lifecycle.md).*
+
+---
+
+### Trap 12: Half-Precision (`fp16`) Shader Hazards in WebGPU Vocoders & Normalization Heads
+- **The Issue**: While `fp16` accelerates matrix multiplications on compatible GPUs, transformer vocoders and normalization blocks (AdaIN, LayerNorm, RMSNorm) compute variance sums that exceed half-precision limits ($65,504$). Under Chromium's WGSL/WebGPU implementation, this produces numerical overflow (`NaN`/`+Inf`), resulting in heavily distorted, robotic, or cracked audio.
+- **The Solution**:
+  1. **Force `fp32` on WebGPU for Generative Audio**: Small models (50-100M parameters) occupy only $\sim 300\text{MB}$ in `fp32`—modern GPUs execute this effortlessly with studio-quality acoustics.
+  2. **Audio Sample Conditioning**: Clamp raw output PCM samples to `[-1.0, 1.0]` and apply a 3ms micro fade-in/fade-out to prevent DAC clipping and boundary click transients.
+  *See [references/webgpu-memory-lifecycle.md](./references/webgpu-memory-lifecycle.md) and [references/webaudio-resampling.md](./references/webaudio-resampling.md).*
+
+---
+
 ## 📁 Skill Reference Index
 
 - [Obsidian Community Release Checklist](./references/obsidian-community-release-checklist.md) — Comprehensive guide to passing automated review audits and adhering to official plugin guidelines.
+- [WebGPU Memory Lifecycle & Pipelining](./references/webgpu-memory-lifecycle.md) — Complete guide to zero-leak WebGPU inference, cooperative V8 GC, and sliding lookahead queues.
 - [esbuild WASM Patching Guide](./references/esbuild-wasm-patching.md) — Exact AST/regex replacers for local WASM in Electron.
 - [Electron Sandbox Rules](./references/electron-sandbox-rules.md) — Permissions, renderer flags, Direct Filesystem disclosures, and In-Settings Asset Downloaders.
-- [WebAudio Resampling & Audio Graph](./references/webaudio-resampling.md) — DAC synchronization and gapless playback.
+- [WebAudio Resampling & Audio Graph](./references/webaudio-resampling.md) — DAC synchronization, sample conditioning, and gapless playback.
 - [CSS Custom Highlight API](./references/css-highlight-api.md) — Zero-mutation text tracking implementation.
 - [esbuild.config.template.mjs](./examples/esbuild.config.template.mjs) — Complete boilerplate build script for Obsidian + ONNX plugins.
