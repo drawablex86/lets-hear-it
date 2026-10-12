@@ -109,6 +109,28 @@ export default class LetsHearItPlugin extends Plugin {
 		// 8. Register editor context menu item
 		this.registerEvent(
 			this.app.workspace.on("editor-menu", (menu, editor, view) => {
+				const selectedText = editor.getSelection();
+				if (selectedText && selectedText.trim().length > 0) {
+					menu.addItem((item: MenuItem) => {
+						item.setTitle("Read selected text")
+							.setIcon(EAR_ICON_ID)
+							.onClick(async () => {
+								await this.ensureAudioContext();
+								await this.readSelection();
+							});
+					});
+
+					if (view.file && view.file.extension === "md") {
+						menu.addItem((item: MenuItem) => {
+							item.setTitle("Export selected text to MP3")
+								.setIcon(RECORD_ICON_ID)
+								.onClick(() => {
+									new ExportMp3Modal(this.app, this, view.file!, selectedText).open();
+								});
+						});
+					}
+				}
+
 				if (view.file && view.file.extension === "md") {
 					menu.addItem((item: MenuItem) => {
 						item.setTitle("Export note to MP3")
@@ -122,6 +144,40 @@ export default class LetsHearItPlugin extends Plugin {
 		);
 
 		// 9. Register commands
+		this.addCommand({
+			id: "read-selected-text",
+			name: "Read selected text",
+			checkCallback: (checking: boolean) => {
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				const hasSelection = !!this.getActiveSelection(activeView);
+				if (activeView && hasSelection) {
+					if (!checking) {
+						void this.ensureAudioContext()
+							.then(() => this.readSelection())
+							.catch((err) => console.error("[let's hear it] Failed to start audio:", err));
+					}
+					return true;
+				}
+				return false;
+			},
+		});
+
+		this.addCommand({
+			id: "export-selection-to-mp3",
+			name: "Export selected text to MP3",
+			checkCallback: (checking: boolean) => {
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				const selection = this.getActiveSelection(activeView);
+				if (activeView && activeView.file && selection) {
+					if (!checking) {
+						new ExportMp3Modal(this.app, this, activeView.file, selection).open();
+					}
+					return true;
+				}
+				return false;
+			},
+		});
+
 		this.addCommand({
 			id: "read-current-note",
 			name: "Read current note",
@@ -304,7 +360,12 @@ export default class LetsHearItPlugin extends Plugin {
 					void this.saveSettings();
 				},
 				onPlay: () => {
-					void this.readCurrentNote();
+					const selection = this.getActiveSelection();
+					if (selection) {
+						void this.readSelection();
+					} else {
+						void this.readCurrentNote();
+					}
 				},
 				onToggleHearingMode: () => {
 					void this.toggleHearingMode();
@@ -339,7 +400,12 @@ export default class LetsHearItPlugin extends Plugin {
 
 	public async togglePlayback(): Promise<void> {
 		if (!this.ttsEngine) {
-			await this.readCurrentNote();
+			const selection = this.getActiveSelection();
+			if (selection) {
+				await this.readSelection();
+			} else {
+				await this.readCurrentNote();
+			}
 			return;
 		}
 
@@ -349,11 +415,89 @@ export default class LetsHearItPlugin extends Plugin {
 		} else if (state === "paused") {
 			this.ttsEngine.resume();
 		} else {
-			await this.readCurrentNote();
+			const selection = this.getActiveSelection();
+			if (selection) {
+				await this.readSelection();
+			} else {
+				await this.readCurrentNote();
+			}
 		}
 	}
 
-	private isStartingPlayback = false;
+	public getActiveSelection(view?: MarkdownView | null): string | null {
+		const activeView = view ?? this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) return null;
+
+		// 1. Editor selection (source / live-preview)
+		if (activeView.editor) {
+			const selection = activeView.editor.getSelection();
+			if (selection && selection.trim().length > 0) {
+				return selection;
+			}
+		}
+
+		// 2. DOM selection fallback (preview / reading view)
+		if (typeof window !== "undefined") {
+			const sel = window.getSelection();
+			const text = sel ? sel.toString().trim() : "";
+			if (text.length > 0) {
+				return text;
+			}
+		}
+
+		return null;
+	}
+
+	public async readSelection(): Promise<void> {
+		if (this.isStartingPlayback) return;
+		this.isStartingPlayback = true;
+
+		try {
+			const engineReady = await this.ensureEngineReady();
+			if (!engineReady) {
+				return;
+			}
+
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!activeView) {
+				new Notice("No active markdown note to read from.");
+				return;
+			}
+
+			const selectedText = this.getActiveSelection(activeView);
+			if (!selectedText || !selectedText.trim()) {
+				new Notice("No text selected to read.");
+				return;
+			}
+
+			await this.ensureAudioContext();
+
+			if (this.highlighter) {
+				this.highlighter.setActiveView(activeView);
+				this.highlighter.clearHighlight();
+			}
+
+			// Show floating player configured for selection mode
+			if (this.player) {
+				this.player.setPlaybackScope("selection");
+				this.player.show();
+			}
+
+			const { sentences } = cleanMarkdownForSpeech(selectedText);
+			if (sentences.length === 0) {
+				new Notice("No speakable text found in selection.");
+				return;
+			}
+
+			this.currentSentences = sentences;
+			const sentenceTexts = sentences.map((s) => s.text);
+
+			new Notice(`let's hear it: Reading selected portion (${sentences.length} sentences)`);
+			await this.ttsEngine?.play(sentenceTexts, 0);
+		} finally {
+			this.isStartingPlayback = false;
+		}
+	}
 
 	public async readCurrentNote(): Promise<void> {
 		if (this.isStartingPlayback) return;
@@ -393,8 +537,9 @@ export default class LetsHearItPlugin extends Plugin {
 				this.highlighter.clearHighlight();
 			}
 
-			// Show floating player
+			// Show floating player configured for full note mode
 			if (this.player) {
+				this.player.setPlaybackScope("note");
 				this.player.show();
 			}
 

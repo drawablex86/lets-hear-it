@@ -9,6 +9,7 @@ export class ExportMp3Modal extends Modal {
 	private plugin: LetsHearItPlugin;
 	private targetFile: TFile;
 	private selectedVoice: string;
+	private selectedText: string | null = null;
 	private sentences: string[] = [];
 
 	private statusEl: HTMLElement | null = null;
@@ -17,11 +18,12 @@ export class ExportMp3Modal extends Modal {
 	private generateBtn: HTMLButtonElement | null = null;
 	private isGenerating = false;
 
-	constructor(app: App, plugin: LetsHearItPlugin, file: TFile) {
+	constructor(app: App, plugin: LetsHearItPlugin, file: TFile, selectedText?: string) {
 		super(app);
 		this.plugin = plugin;
 		this.targetFile = file;
 		this.selectedVoice = plugin.settings.voice || "af_heart";
+		this.selectedText = selectedText && selectedText.trim().length > 0 ? selectedText : null;
 	}
 
 	async onOpen() {
@@ -29,10 +31,13 @@ export class ExportMp3Modal extends Modal {
 		contentEl.empty();
 		contentEl.addClass("lets-hear-it-record-modal");
 
-		contentEl.createEl("h2", { text: "Create MP3 Audio from Note" });
+		const isSelection = this.selectedText !== null;
+		contentEl.createEl("h2", {
+			text: isSelection ? "Create MP3 Audio from Selection" : "Create MP3 Audio from Note",
+		});
 
-		// Read and clean the target note
-		const rawContent = await this.app.vault.read(this.targetFile);
+		// Read and clean the target note or selection
+		const rawContent = isSelection ? this.selectedText! : await this.app.vault.read(this.targetFile);
 		const { sentences } = cleanMarkdownForSpeech(rawContent);
 		this.sentences = sentences.map((s) => s.text);
 
@@ -40,7 +45,9 @@ export class ExportMp3Modal extends Modal {
 		const noteSummary = contentEl.createDiv({ cls: "lets-hear-it-modal-summary" });
 		noteSummary.createDiv({
 			cls: "lets-hear-it-modal-filename",
-			text: `📄 Note: ${this.targetFile.basename}`,
+			text: isSelection
+				? `📄 Selection from: ${this.targetFile.basename}`
+				: `📄 Note: ${this.targetFile.basename}`,
 		});
 		const speechBatches = TTSEngine.groupSentencesIntoSpeechChunks(this.sentences, 380);
 		noteSummary.createDiv({
@@ -52,7 +59,10 @@ export class ExportMp3Modal extends Modal {
 		const destFolder = this.plugin.settings.exportFolder
 			? this.plugin.settings.exportFolder.replace(/^\/+|\/+$/g, "")
 			: "(vault root)";
-		const destPathPreview = `${destFolder}/${this.targetFile.basename}.mp3`;
+		const baseOutputName = isSelection
+			? this.computeSelectionBaseName(this.targetFile.basename, this.selectedText!)
+			: this.targetFile.basename;
+		const destPathPreview = `${destFolder}/${baseOutputName}.mp3`;
 		noteSummary.createDiv({
 			cls: "lets-hear-it-modal-dest",
 			text: `Output destination: ${destPathPreview}`,
@@ -229,7 +239,10 @@ export class ExportMp3Modal extends Modal {
 		}
 
 		// Compute available filename
-		const baseName = this.targetFile.basename;
+		const isSelection = this.selectedText !== null;
+		const baseName = isSelection
+			? this.computeSelectionBaseName(this.targetFile.basename, this.selectedText!)
+			: this.targetFile.basename;
 		let fileName = `${baseName}.mp3`;
 		let fullPath = folderPath ? `${folderPath}/${fileName}` : fileName;
 		let counter = 1;
@@ -241,5 +254,33 @@ export class ExportMp3Modal extends Modal {
 		}
 
 		return await this.app.vault.createBinary(fullPath, buffer);
+	}
+
+	/**
+	 * Computes export filename base from note name plus the first three words of the paragraph.
+	 * Removes markdown formatting characters and illegal filesystem characters.
+	 */
+	private computeSelectionBaseName(noteBasename: string, selectedText: string): string {
+		// Clean markdown and extract first paragraph
+		const { cleanText } = cleanMarkdownForSpeech(selectedText);
+		const firstParagraph = cleanText.split(/\n+/).find((p) => p.trim().length > 0) || cleanText;
+
+		// Extract words (stripping punctuation from boundaries)
+		const words = firstParagraph
+			.trim()
+			.split(/\s+/)
+			.map((w) => w.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, ""))
+			.filter((w) => w.length > 0);
+
+		if (words.length > 0) {
+			const firstThree = words.slice(0, 3).join(" ");
+			// Sanitize filesystem forbidden characters: / \ : * ? " < > |
+			const sanitizedSnippet = firstThree.replace(/[\\/:*?"<>|]/g, "").trim();
+			if (sanitizedSnippet.length > 0) {
+				return `${noteBasename} - ${sanitizedSnippet}`;
+			}
+		}
+
+		return `${noteBasename} (Selection)`;
 	}
 }

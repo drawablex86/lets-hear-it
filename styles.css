@@ -52,6 +52,27 @@
 	overflow: hidden;
 }
 
+/* Waveform Visualizer Container */
+.lets-hear-it-waveform {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 3px;
+	height: 24px;
+	min-width: 28px;
+	padding: 0 4px;
+}
+
+.lets-hear-it-wave-bar {
+	width: 3px;
+	height: 3px;
+	min-height: 3px;
+	border-radius: 9999px;
+	background: var(--interactive-accent);
+	transition: height 0.06s ease, opacity 0.08s ease;
+	opacity: 0.5;
+}
+
 /* Controls Group */
 .lets-hear-it-player-controls {
 	display: flex;

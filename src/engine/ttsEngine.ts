@@ -27,6 +27,7 @@ export class TTSEngine {
 	private modelInitPromise: Promise<KokoroTTS> | null = null;
 
 	private audioContext: AudioContext;
+	private analyserNode: AnalyserNode | null = null;
 	private events: TTSEngineEvents = {};
 
 	// Queue & Playback State
@@ -69,6 +70,29 @@ export class TTSEngine {
 		} catch {
 			// ignore cache polyfill errors
 		}
+
+		this.setupAnalyser();
+	}
+
+	private setupAnalyser(): void {
+		try {
+			if (this.audioContext && !this.analyserNode) {
+				const analyser = this.audioContext.createAnalyser();
+				analyser.fftSize = 64;
+				analyser.smoothingTimeConstant = 0.8;
+				analyser.connect(this.audioContext.destination);
+				this.analyserNode = analyser;
+			}
+		} catch (err) {
+			console.warn("[let's hear it] Failed to initialize AnalyserNode:", err);
+		}
+	}
+
+	public getAnalyserNode(): AnalyserNode | null {
+		if (!this.analyserNode) {
+			this.setupAnalyser();
+		}
+		return this.analyserNode;
 	}
 
 	public static getInstance(audioContext: AudioContext, events: TTSEngineEvents = {}): TTSEngine {
@@ -524,7 +548,11 @@ export class TTSEngine {
 			const source = this.audioContext.createBufferSource();
 			source.buffer = item.audioBuffer;
 			source.playbackRate.value = this.playbackRate;
-			source.connect(this.audioContext.destination);
+			if (this.analyserNode) {
+				source.connect(this.analyserNode);
+			} else {
+				source.connect(this.audioContext.destination);
+			}
 			this.activeSourceNode = source;
 
 			source.onended = () => {

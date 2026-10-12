@@ -1,6 +1,9 @@
 import { setIcon } from "obsidian";
 import { TTSEngine, TTSState } from "../engine/ttsEngine";
 import { GLASSES_ICON_ID } from "./icons";
+import { WaveformVisualizer } from "./waveform";
+
+export type PlaybackScope = "note" | "selection";
 
 export interface FloatingPlayerOptions {
 	ttsEngine: TTSEngine;
@@ -14,12 +17,14 @@ export class FloatingPlayer {
 	private containerEl: HTMLElement | null = null;
 	private statusEl: HTMLElement | null = null;
 	private subtextEl: HTMLElement | null = null;
+	private waveform: WaveformVisualizer | null = null;
 	private playPauseBtn: HTMLButtonElement | null = null;
 	private stopBtn: HTMLButtonElement | null = null;
 	private modeBtn: HTMLButtonElement | null = null;
 	private speedSelect: HTMLSelectElement | null = null;
 	private voiceSelect: HTMLSelectElement | null = null;
 	private isVisible = false;
+	private playbackScope: PlaybackScope = "note";
 
 	private ttsEngine: TTSEngine;
 	private onClose?: () => void;
@@ -33,6 +38,17 @@ export class FloatingPlayer {
 		this.onVoiceChange = options.onVoiceChange;
 		this.onPlay = options.onPlay;
 		this.onToggleHearingMode = options.onToggleHearingMode;
+	}
+
+	public setPlaybackScope(scope: PlaybackScope): void {
+		this.playbackScope = scope;
+		if (this.isVisible) {
+			this.updateState(this.ttsEngine.getState());
+		}
+	}
+
+	public getPlaybackScope(): PlaybackScope {
+		return this.playbackScope;
 	}
 
 	/**
@@ -59,10 +75,15 @@ export class FloatingPlayer {
 		if (this.containerEl) {
 			this.containerEl.addClass("is-hidden");
 		}
+		this.waveform?.stop();
 		this.isVisible = false;
 	}
 
 	public destroy(): void {
+		if (this.waveform) {
+			this.waveform.destroy();
+			this.waveform = null;
+		}
 		if (this.containerEl) {
 			this.containerEl.remove();
 			this.containerEl = null;
@@ -79,7 +100,10 @@ export class FloatingPlayer {
 		this.statusEl = infoEl.createDiv({ cls: "lets-hear-it-player-status", text: "let's hear it" });
 		this.subtextEl = infoEl.createDiv({ cls: "lets-hear-it-player-subtext", text: "Ready" });
 
-		// 2. Playback Controls Group
+		// 2. Waveform Visualizer
+		this.waveform = new WaveformVisualizer(container, this.ttsEngine, 5);
+
+		// 3. Playback Controls Group
 		const controlsEl = container.createDiv({ cls: "lets-hear-it-player-controls" });
 
 		// Play/Pause Button
@@ -224,6 +248,12 @@ export class FloatingPlayer {
 			}
 		}
 
+		if (state === "playing" || state === "buffering" || state === "loading-model") {
+			this.waveform?.start();
+		} else {
+			this.waveform?.stop();
+		}
+
 		if (this.statusEl) {
 			switch (state) {
 				case "loading-model":
@@ -233,7 +263,7 @@ export class FloatingPlayer {
 					this.statusEl.textContent = "Buffering...";
 					break;
 				case "playing":
-					this.statusEl.textContent = "Reading Note";
+					this.statusEl.textContent = this.playbackScope === "selection" ? "Reading Selection" : "Reading Note";
 					break;
 				case "paused":
 					this.statusEl.textContent = "Paused";
@@ -254,7 +284,8 @@ export class FloatingPlayer {
 			} else if (state === "playing" || state === "paused") {
 				const current = this.ttsEngine.getCurrentSentenceIndex() + 1;
 				const total = this.ttsEngine.getTotalSentences();
-				this.subtextEl.textContent = `Sentence ${current} of ${total}`;
+				const scopeSuffix = this.playbackScope === "selection" ? " (Selection)" : "";
+				this.subtextEl.textContent = `Sentence ${current} of ${total}${scopeSuffix}`;
 			} else if (state === "idle" || state === "stopped") {
 				this.subtextEl.textContent = "Ready";
 			}
@@ -263,7 +294,8 @@ export class FloatingPlayer {
 
 	public setSentenceProgress(current: number, total: number): void {
 		if (this.subtextEl) {
-			this.subtextEl.textContent = `Sentence ${current + 1} of ${total}`;
+			const scopeSuffix = this.playbackScope === "selection" ? " (Selection)" : "";
+			this.subtextEl.textContent = `Sentence ${current + 1} of ${total}${scopeSuffix}`;
 		}
 	}
 }
