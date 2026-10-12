@@ -203,13 +203,12 @@ export class TTSEngine {
 						ort.env.logLevel = "error";
 						if (ort.env.wasm) {
 							ort.env.wasm.wasmBinary = new Uint8Array(wasmBuf.buffer, wasmBuf.byteOffset, wasmBuf.byteLength);
-							// Dynamic Hardware Topology Formula:
-							// - Low-end/dual-core: 1 thread (preserves UI/main thread responsiveness)
-							// - Quad-core: 2 threads
-							// - 6-8 core hybrid (e.g. Apple Silicon 4P+4E): Math.floor(cores/2) = 4 threads (matches P-cores)
-							// - High-core workstations (12-32+): capped at 6 threads to avoid SharedArrayBuffer lock contention
+							// Dynamic Hardware Topology:
+							// Use 2 threads on multi-core systems (or 1 on dual-core).
+							// In Electron/Chromium, 2 threads offers peak WASM SIMD throughput for Kokoro-82M
+							// while preventing thread pool initialization contention and memory thrashing.
 							const logicalCores = typeof navigator !== "undefined" && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
-							const optimalThreads = Math.min(6, Math.max(1, Math.floor(logicalCores / 2)));
+							const optimalThreads = Math.min(2, Math.max(1, Math.floor(logicalCores / 2)));
 							ort.env.wasm.numThreads = optimalThreads;
 
 							if (fs.existsSync(mjsFile)) {
@@ -592,9 +591,6 @@ export class TTSEngine {
 		this.currentSentenceIndex = index;
 		this.setState("buffering", `Preparing sentence ${index + 1}/${this.sentencesQueue.length}...`);
 
-		// Trigger strict 2-sentence sequential pre-fetch in background
-		void this.prefetchUpcomingSentences(index, currentEpoch);
-
 		try {
 			const item = await this.getSentenceAudioPromise(index);
 			// Validate that session epoch is still valid before initiating WebAudio nodes
@@ -647,6 +643,9 @@ export class TTSEngine {
 			this.setState("playing", `Reading sentence ${index + 1}/${this.sentencesQueue.length}`);
 			source.start(0, startOffset);
 			this.startTimeTracking(index, currentEpoch);
+
+			// Trigger sequential pre-fetch for upcoming sentence only after current sentence is playing
+			void this.prefetchUpcomingSentences(index, currentEpoch);
 		} catch (error) {
 			if (this.playbackSessionEpoch !== currentEpoch || this.isStopped) return;
 			console.error(`[let's hear it] Playback error at sentence ${index}:`, error);

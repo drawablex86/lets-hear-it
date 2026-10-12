@@ -35,14 +35,12 @@ export class WordHighlighter {
 	private activeSentenceRange: Range | null = null;
 	private activeWordRanges = new Map<number, Range>();
 	private activeBlockEl: HTMLElement | null = null;
+	private lastMatchedBlock: HTMLElement | null = null;
+	private lastMatchedSentenceEndOffset = 0;
 
 	// Viewport auto-scroll settings & throttle
 	private autoScrollEnabled = true;
 	private lastScrollTimestamp = 0;
-
-	// Fallback DOM highlight elements if CSS Custom Highlight API is unavailable
-	private fallbackWordSpan: HTMLElement | null = null;
-	private fallbackSentenceSpan: HTMLElement | null = null;
 
 	constructor() {}
 
@@ -105,6 +103,8 @@ export class WordHighlighter {
 			this.activeSentenceRange = null;
 			this.activeWordRanges.clear();
 			this.activeBlockEl = null;
+			this.lastMatchedBlock = null;
+			this.lastMatchedSentenceEndOffset = 0;
 		}
 	}
 
@@ -143,15 +143,45 @@ export class WordHighlighter {
 		const blockSelectors = "p, li, h1, h2, h3, h4, h5, h6, blockquote, .cm-line";
 		const candidateBlocks = Array.from(searchRoot.querySelectorAll<HTMLElement>(blockSelectors));
 
-		// Find block containing key snippet of this sentence
+		// Extract clean words from sentence for robust matching
 		const wordsList = sentenceChunk.words.map((w) => w.word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase());
-		const cleanSnippet = wordsList.slice(0, 4).filter((w) => w.length >= 2).join(" ");
+		const fullSentenceClean = wordsList.filter((w) => w.length > 0).join(" ");
+		const anchorSnippet4 = wordsList.slice(0, 4).filter((w) => w.length > 0).join(" ");
+		const anchorSnippet2 = wordsList.slice(0, 2).filter((w) => w.length > 0).join(" ");
 
 		let matchedBlock: HTMLElement | null = null;
-		if (cleanSnippet.length > 0) {
+
+		// If this sentence follows a previously matched block, check if it's still in that same block first!
+		if (this.lastMatchedBlock && candidateBlocks.includes(this.lastMatchedBlock)) {
+			const currentBlockText = (this.lastMatchedBlock.textContent || "").toLowerCase();
+			if (
+				(anchorSnippet4.length > 0 && currentBlockText.includes(anchorSnippet4)) ||
+				(fullSentenceClean.length > 0 && currentBlockText.includes(fullSentenceClean)) ||
+				(anchorSnippet2.length > 0 && currentBlockText.includes(anchorSnippet2))
+			) {
+				matchedBlock = this.lastMatchedBlock;
+			}
+		}
+
+		// Otherwise, search candidate blocks for 4-word anchor phrase
+		if (!matchedBlock && anchorSnippet4.length > 0) {
 			for (const block of candidateBlocks) {
 				const blockText = (block.textContent || "").toLowerCase();
-				if (blockText.includes(cleanSnippet)) {
+				if (blockText.includes(anchorSnippet4)) {
+					matchedBlock = block;
+					break;
+				}
+			}
+		}
+
+		// Fallback: search for full sentence or 2-word anchor
+		if (!matchedBlock) {
+			for (const block of candidateBlocks) {
+				const blockText = (block.textContent || "").toLowerCase();
+				if (
+					(fullSentenceClean.length > 0 && blockText.includes(fullSentenceClean)) ||
+					(anchorSnippet2.length > 0 && blockText.includes(anchorSnippet2))
+				) {
 					matchedBlock = block;
 					break;
 				}
@@ -160,7 +190,7 @@ export class WordHighlighter {
 
 		// Fallback: match by first significant word
 		if (!matchedBlock) {
-			const firstSignificant = wordsList.find((w) => w.length >= 3);
+			const firstSignificant = wordsList.find((w) => w.length >= 4);
 			if (firstSignificant) {
 				for (const block of candidateBlocks) {
 					const blockText = (block.textContent || "").toLowerCase();
@@ -170,6 +200,12 @@ export class WordHighlighter {
 					}
 				}
 			}
+		}
+
+		// If block changed from previous sentence, reset sequential sentence offset within block
+		if (this.lastMatchedBlock !== matchedBlock) {
+			this.lastMatchedSentenceEndOffset = 0;
+			this.lastMatchedBlock = matchedBlock;
 		}
 
 		this.activeBlockEl = matchedBlock || searchRoot;
@@ -232,31 +268,60 @@ export class WordHighlighter {
 		const fullBlockText = blockMap.flattenedText;
 		if (!fullBlockText || sentenceChunk.words.length === 0) return;
 
-		// Extract first and last significant words to locate sentence boundary in this block
-		const firstWordClean = sentenceChunk.words[0].word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase();
-		const lastWordClean = sentenceChunk.words[sentenceChunk.words.length - 1].word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase();
+		// Extract clean words from this sentence
+		const wordsClean = sentenceChunk.words
+			.map((w) => w.word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase())
+			.filter((w) => w.length > 0);
+
+		if (wordsClean.length === 0) return;
+
+		// Try to match the longest unique anchor phrase from the sentence start
+		const anchor4 = wordsClean.slice(0, 4).join(" ");
+		const anchor3 = wordsClean.slice(0, 3).join(" ");
+		const anchor2 = wordsClean.slice(0, 2).join(" ");
+		const firstWordClean = wordsClean[0];
 
 		let sentenceStartChar = -1;
-		let searchPos = 0;
 
-		// Search for first word matching sentence start
-		while (searchPos < fullBlockText.length) {
-			const idx = fullBlockText.toLowerCase().indexOf(firstWordClean, searchPos);
-			if (idx === -1) break;
+		// Strategy A: Search forward from last matched sentence end in this block
+		// (Prevents duplicate phrases like 'how do you' in sentence 3 from matching sentence 2)
+		const searchFromOffset = Math.max(0, this.lastMatchedSentenceEndOffset);
+		const lowerBlock = fullBlockText.toLowerCase();
 
-			// Verify if the second word also follows within reasonable range
-			if (sentenceChunk.words.length > 1) {
-				const secondWordClean = sentenceChunk.words[1].word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase();
-				const nextSnippet = fullBlockText.slice(idx, idx + 80).toLowerCase();
-				if (nextSnippet.includes(secondWordClean)) {
-					sentenceStartChar = idx;
-					break;
-				}
-			} else {
-				sentenceStartChar = idx;
-				break;
+		if (anchor4.length > 0) {
+			const idx = lowerBlock.indexOf(anchor4, searchFromOffset);
+			if (idx !== -1) sentenceStartChar = idx;
+		}
+		if (sentenceStartChar === -1 && anchor3.length > 0) {
+			const idx = lowerBlock.indexOf(anchor3, searchFromOffset);
+			if (idx !== -1) sentenceStartChar = idx;
+		}
+		if (sentenceStartChar === -1 && anchor2.length > 0) {
+			const idx = lowerBlock.indexOf(anchor2, searchFromOffset);
+			if (idx !== -1) sentenceStartChar = idx;
+		}
+		if (sentenceStartChar === -1 && firstWordClean.length > 0) {
+			const idx = lowerBlock.indexOf(firstWordClean, searchFromOffset);
+			if (idx !== -1) sentenceStartChar = idx;
+		}
+
+		// Strategy B: If not found after searchFromOffset (e.g. out of order jump), search from 0
+		if (sentenceStartChar === -1) {
+			if (anchor4.length > 0) {
+				const idx = lowerBlock.indexOf(anchor4);
+				if (idx !== -1) sentenceStartChar = idx;
 			}
-			searchPos = idx + firstWordClean.length;
+			if (sentenceStartChar === -1 && anchor3.length > 0) {
+				const idx = lowerBlock.indexOf(anchor3);
+				if (idx !== -1) sentenceStartChar = idx;
+			}
+			if (sentenceStartChar === -1 && anchor2.length > 0) {
+				const idx = lowerBlock.indexOf(anchor2);
+				if (idx !== -1) sentenceStartChar = idx;
+			}
+			if (sentenceStartChar === -1) {
+				sentenceStartChar = Math.max(0, lowerBlock.indexOf(firstWordClean));
+			}
 		}
 
 		if (sentenceStartChar === -1) {
@@ -292,6 +357,7 @@ export class WordHighlighter {
 		// Set active sentence range spanning from sentenceStartChar to sentenceEndChar
 		if (sentenceEndChar > sentenceStartChar) {
 			this.activeSentenceRange = this.createRangeFromOffsets(blockMap.segments, sentenceStartChar, sentenceEndChar);
+			this.lastMatchedSentenceEndOffset = sentenceEndChar;
 		}
 	}
 
@@ -396,20 +462,9 @@ export class WordHighlighter {
 				const HighlightConstructor = (window as unknown as { Highlight: typeof Range }).Highlight as unknown as new (range: Range) => unknown;
 				const highlight = new HighlightConstructor(range);
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.set(SENTENCE_HIGHLIGHT_NAME, highlight);
-				return;
 			} catch (err) {
 				console.warn("[let's hear it] CSS sentence highlight failed:", err);
 			}
-		}
-
-		// Fallback: DOM Span
-		this.removeFallbackSentenceSpan();
-		try {
-			const span = createSpan({ cls: "lets-hear-it-active-sentence" });
-			range.surroundContents(span);
-			this.fallbackSentenceSpan = span;
-		} catch {
-			// Expected if range crosses complex node boundaries
 		}
 	}
 
@@ -422,44 +477,9 @@ export class WordHighlighter {
 				const HighlightConstructor = (window as unknown as { Highlight: typeof Range }).Highlight as unknown as new (range: Range) => unknown;
 				const highlight = new HighlightConstructor(range);
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.set(WORD_HIGHLIGHT_NAME, highlight);
-				return;
 			} catch (err) {
-				console.warn("[let's hear it] CSS word highlight failed, using DOM fallback:", err);
+				console.warn("[let's hear it] CSS word highlight failed:", err);
 			}
-		}
-
-		// Fallback: DOM Span
-		this.removeFallbackWordSpan();
-		try {
-			const span = createSpan({ cls: "lets-hear-it-active-word" });
-			range.surroundContents(span);
-			this.fallbackWordSpan = span;
-		} catch {
-			// Range may cross element boundaries
-		}
-	}
-
-	private removeFallbackWordSpan(): void {
-		if (this.fallbackWordSpan && this.fallbackWordSpan.parentNode) {
-			const parent = this.fallbackWordSpan.parentNode;
-			while (this.fallbackWordSpan.firstChild) {
-				parent.insertBefore(this.fallbackWordSpan.firstChild, this.fallbackWordSpan);
-			}
-			parent.removeChild(this.fallbackWordSpan);
-			parent.normalize();
-			this.fallbackWordSpan = null;
-		}
-	}
-
-	private removeFallbackSentenceSpan(): void {
-		if (this.fallbackSentenceSpan && this.fallbackSentenceSpan.parentNode) {
-			const parent = this.fallbackSentenceSpan.parentNode;
-			while (this.fallbackSentenceSpan.firstChild) {
-				parent.insertBefore(this.fallbackSentenceSpan.firstChild, this.fallbackSentenceSpan);
-			}
-			parent.removeChild(this.fallbackSentenceSpan);
-			parent.normalize();
-			this.fallbackSentenceSpan = null;
 		}
 	}
 
@@ -470,7 +490,6 @@ export class WordHighlighter {
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(WORD_HIGHLIGHT_NAME);
 			} catch {}
 		}
-		this.removeFallbackWordSpan();
 	}
 
 	public clearHighlight(): void {
@@ -487,9 +506,6 @@ export class WordHighlighter {
 				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(SENTENCE_HIGHLIGHT_NAME);
 			} catch {}
 		}
-
-		this.removeFallbackWordSpan();
-		this.removeFallbackSentenceSpan();
 	}
 
 	private ensureVisibleInViewport(element: HTMLElement, forceScroll = false): void {
