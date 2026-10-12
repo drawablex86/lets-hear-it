@@ -293,33 +293,15 @@ export class TTSEngine {
 			// "wasm" (Balanced / Recommended): Uses 8-bit quantization ('q8') on WASM SIMD,
 			//   occupying ~85MB memory with 0 unmanaged GPU buffer leaks, 100% stable, zero system freezes.
 			// Hardware Acceleration:
-			// "webgpu" (Fast Hardware Acceleration): Uses WebGPU with fp32 or fp16 (auto-detected via shader-f16).
+			// "webgpu" (Fast Hardware Acceleration): Uses WebGPU with fp32 for uncompressed natural audio fidelity.
+			//   (Note: fp16 on WebGPU causes variance overflow & cracked robotic audio in Kokoro's vocoder).
 			// "wasm" (Balanced CPU): Uses 8-bit quantization ('q8') on WASM SIMD.
 			const requestedDevice = this.hardwareAcceleration;
 			const isGpuSupported = typeof navigator !== "undefined" && "gpu" in navigator && !!(navigator as unknown as { gpu?: unknown }).gpu;
 			const device: "webgpu" | "wasm" = requestedDevice === "webgpu" && isGpuSupported ? "webgpu" : "wasm";
 
-			// Determine optimal dtype for WebGPU:
-			// Auto-detect 'shader-f16' capability on user's GPU adapter:
-			// If supported, fp16 cuts VRAM in half and doubles inference throughput!
-			// Otherwise, fall back to rock-solid fp32. For wasm, use q8.
-			let dtype = "q8";
-			if (device === "webgpu") {
-				dtype = "fp32";
-				try {
-					if (typeof navigator !== "undefined" && (navigator as unknown as { gpu?: { requestAdapter: () => Promise<{ features: Set<string> } | null> } }).gpu) {
-						const navGpu = (navigator as unknown as { gpu: { requestAdapter: () => Promise<{ features: Set<string> } | null> } }).gpu;
-						const adapter = await navGpu.requestAdapter();
-						if (adapter && adapter.features && adapter.features.has("shader-f16")) {
-							dtype = "fp16";
-							console.log("[let's hear it] WebGPU shader-f16 supported: using high-performance fp16");
-						}
-					}
-				} catch {
-					// Fall back to fp32 if adapter inspection fails
-					dtype = "fp32";
-				}
-			}
+			// WebGPU uses fp32 for studio-clean audio, while WASM uses q8
+			const dtype = device === "webgpu" ? "fp32" : "q8";
 
 			// Ensure ORT WebGPU powerPreference is set
 			if (ort?.env?.webgpu) {
@@ -336,30 +318,20 @@ export class TTSEngine {
 			} catch (err) {
 				console.warn(`[let's hear it] Failed to initialize model with device=${device}, dtype=${dtype}:`, err);
 				if (device === "webgpu") {
-					// If fp16 failed or WebGPU failed, fallback to fp32 on webgpu, then q8 on wasm
 					try {
 						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-							dtype: "fp32",
-							device: "webgpu",
+							dtype: "q8",
+							device: "wasm",
 							progress_callback: progressCallback,
 						});
 						this.patchKokoroModelForZeroLeaks(this.ttsModel);
 					} catch {
-						try {
-							this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-								dtype: "q8",
-								device: "wasm",
-								progress_callback: progressCallback,
-							});
-							this.patchKokoroModelForZeroLeaks(this.ttsModel);
-						} catch {
-							this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
-								dtype: "fp32",
-								device: "wasm",
-								progress_callback: progressCallback,
-							});
-							this.patchKokoroModelForZeroLeaks(this.ttsModel);
-						}
+						this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
+							dtype: "fp32",
+							device: "wasm",
+							progress_callback: progressCallback,
+						});
+						this.patchKokoroModelForZeroLeaks(this.ttsModel);
 					}
 				} else {
 					this.ttsModel = await KokoroTTS.from_pretrained(modelId, {
@@ -493,8 +465,36 @@ export class TTSEngine {
 			const sampleRate = rawAudio.sampling_rate || 24000;
 			const float32Data = rawAudio.audio; // Float32Array PCM
 
-			const audioBuffer = this.audioContext.createBuffer(1, float32Data.length, sampleRate);
-			audioBuffer.copyToChannel(float32Data as unknown as Float32Array<ArrayBuffer>, 0);
+			// Audio conditioning & de-clicking:
+			// 1. Clamp samples to [-1.0, 1.0] to prevent harsh DAC clipping/cracking
+			// 2. Filter any NaN or infinite values from vocoder computation
+			// 3. Apply smooth micro fade-in and fade-out (3ms ~ 72 samples) to eliminate boundary pops
+			const pcm = new Float32Array(float32Data.length);
+			const fadeLength = Math.min(72, Math.floor(float32Data.length / 4));
+			for (let i = 0; i < float32Data.length; i++) {
+				let s = float32Data[i];
+				if (isNaN(s) || !isFinite(s)) {
+					s = 0;
+				} else if (s > 1.0) {
+					s = 1.0;
+				} else if (s < -1.0) {
+					s = -1.0;
+				}
+
+				// Micro fade-in at start
+				if (i < fadeLength) {
+					s *= (i / fadeLength);
+				}
+				// Micro fade-out at end
+				else if (i >= float32Data.length - fadeLength) {
+					s *= ((float32Data.length - 1 - i) / fadeLength);
+				}
+
+				pcm[i] = s;
+			}
+
+			const audioBuffer = this.audioContext.createBuffer(1, pcm.length, sampleRate);
+			audioBuffer.copyToChannel(pcm as unknown as Float32Array<ArrayBuffer>, 0);
 
 			const duration = audioBuffer.duration;
 
