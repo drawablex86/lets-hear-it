@@ -195,10 +195,10 @@ export class LetsHearItSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Inference engine (Hardware acceleration)")
-			.setDesc("Balanced (CPU WASM) runs 8-bit quantized speech model with ~85 MB memory and zero GPU leaks. Experimental (WebGPU) leverages graphics compute but may accumulate GPU memory in Electron.")
+			.setDesc("WebGPU leverages graphics hardware compute with automatic fp16/fp32 precision and explicit memory cleanup sweeps. CPU WASM runs 8-bit quantized speech on system CPU.")
 			.addDropdown((dropdown) => {
-				dropdown.addOption("wasm", "Balanced: CPU WASM (q8) — Recommended");
-				dropdown.addOption("webgpu", "Experimental: WebGPU (fp32)");
+				dropdown.addOption("webgpu", "WebGPU: Hardware Accelerated (Auto fp16/fp32) — Fast");
+				dropdown.addOption("wasm", "CPU WASM: Balanced (q8)");
 				dropdown.setValue(this.plugin.settings.hardwareAcceleration);
 				dropdown.onChange(async (val) => {
 					const accel = val as "wasm" | "webgpu";

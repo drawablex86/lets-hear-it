@@ -203,6 +203,7 @@ const mockApp = {
   workspace: {
     getActiveViewOfType: () => null,
     on: () => {},
+    onLayoutReady: (fn) => fn(),
   },
   vault: {
     adapter: {
