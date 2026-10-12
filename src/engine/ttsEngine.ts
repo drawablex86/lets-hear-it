@@ -417,13 +417,13 @@ export class TTSEngine {
 			}
 			TTSEngine.sentencesSinceLastGC = 0;
 			// Defer execution to next idle frame so WebAudio scheduling has absolute priority
-			const win = typeof window !== "undefined" ? window : undefined;
-			if (win && "requestIdleCallback" in win) {
-				(win as unknown as { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(() => {
+			const win = typeof window !== "undefined" ? window : globalThis;
+			if ("requestIdleCallback" in win && typeof (win as Record<string, unknown>).requestIdleCallback === "function") {
+				((win as Record<string, unknown>).requestIdleCallback as (cb: () => void) => void)(() => {
 					TTSEngine.triggerGarbageCollection();
 				});
 			} else {
-				setTimeout(() => {
+				win.setTimeout(() => {
 					TTSEngine.triggerGarbageCollection();
 				}, 100);
 			}

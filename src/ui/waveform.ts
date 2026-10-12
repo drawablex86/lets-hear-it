@@ -34,7 +34,7 @@ export class WaveformVisualizer {
 	public stop(): void {
 		this.isRunning = false;
 		if (this.animFrameId !== null) {
-			cancelAnimationFrame(this.animFrameId);
+			window.cancelAnimationFrame(this.animFrameId);
 			this.animFrameId = null;
 		}
 		this.resetBars();
