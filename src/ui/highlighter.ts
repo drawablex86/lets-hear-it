@@ -1,7 +1,8 @@
 import { MarkdownView } from "obsidian";
 import { SentenceChunk, WordOffset } from "../engine/cleaner";
 
-export const HIGHLIGHT_NAME = "lets-hear-it-active-word";
+export const WORD_HIGHLIGHT_NAME = "lets-hear-it-active-word";
+export const SENTENCE_HIGHLIGHT_NAME = "lets-hear-it-active-sentence";
 
 interface WordTimeRange {
 	word: string;
@@ -9,25 +10,39 @@ interface WordTimeRange {
 	endTime: number;
 }
 
+interface TextNodeSegment {
+	node: Text;
+	startOffset: number; // Start char offset in block's flattened text
+	endOffset: number;   // End char offset in block's flattened text
+	text: string;
+}
+
+interface BlockTextMap {
+	blockEl: HTMLElement;
+	segments: TextNodeSegment[];
+	flattenedText: string;
+}
+
 export class WordHighlighter {
 	private activeView: MarkdownView | null = null;
 	private sentenceWordTimes: WordTimeRange[][] = [];
 	private currentSentenceChunks: SentenceChunk[] = [];
-	private currentHighlightRange: Range | null = null;
 	private lastHighlightedSentence = -1;
 	private lastHighlightedWord = -1;
 
-	// Block-anchored tracking
+	// Precomputed sentence & word DOM ranges for the currently active sentence
+	private activeSentenceIndex = -1;
+	private activeSentenceRange: Range | null = null;
+	private activeWordRanges = new Map<number, Range>();
 	private activeBlockEl: HTMLElement | null = null;
-	private activeBlockTextNodes: Text[] = [];
-	private activeBlockSentenceIndex = -1;
 
 	// Viewport auto-scroll settings & throttle
 	private autoScrollEnabled = true;
 	private lastScrollTimestamp = 0;
 
 	// Fallback DOM highlight elements if CSS Custom Highlight API is unavailable
-	private fallbackSpanEl: HTMLElement | null = null;
+	private fallbackWordSpan: HTMLElement | null = null;
+	private fallbackSentenceSpan: HTMLElement | null = null;
 
 	constructor() {}
 
@@ -41,7 +56,6 @@ export class WordHighlighter {
 
 	/**
 	 * Precomputes proportional word duration offsets for all sentences based on synthesized audio duration.
-	 * Word Duration = Audio Duration * (Word Length / Total Sentence Length)
 	 */
 	public setSentenceAudioDurations(sentences: SentenceChunk[], durations: number[]): void {
 		this.currentSentenceChunks = sentences;
@@ -87,20 +101,24 @@ export class WordHighlighter {
 		if (this.activeView !== view) {
 			this.clearHighlight();
 			this.activeView = view;
+			this.activeSentenceIndex = -1;
+			this.activeSentenceRange = null;
+			this.activeWordRanges.clear();
 			this.activeBlockEl = null;
-			this.activeBlockTextNodes = [];
-			this.activeBlockSentenceIndex = -1;
 		}
 	}
 
 	/**
-	 * Pins the specific DOM block container (<p>, <li>, <h*>, blockquote, or .cm-line)
-	 * for the active sentence and checks viewport visibility.
+	 * Locates the exact DOM container for the active sentence and precomputes
+	 * rock-solid, strictly forward Range objects for both the whole sentence
+	 * and each individual word.
 	 */
 	public setActiveSentence(sentenceIndex: number, sentenceChunk: SentenceChunk): void {
-		this.activeBlockSentenceIndex = sentenceIndex;
-		this.activeBlockEl = null;
-		this.activeBlockTextNodes = [];
+		this.activeSentenceIndex = sentenceIndex;
+		this.lastHighlightedSentence = sentenceIndex;
+		this.lastHighlightedWord = -1;
+		this.activeWordRanges.clear();
+		this.activeSentenceRange = null;
 
 		if (!this.activeView) return;
 
@@ -121,36 +139,32 @@ export class WordHighlighter {
 
 		if (!searchRoot) return;
 
-		// 1. Locate candidate block elements (<p>, <li>, <h1>-<h6>, blockquote, or .cm-line)
+		// 1. Locate candidate block elements (<p>, <li>, <h1>-<h6>, blockquote, .cm-line)
 		const blockSelectors = "p, li, h1, h2, h3, h4, h5, h6, blockquote, .cm-line";
 		const candidateBlocks = Array.from(searchRoot.querySelectorAll<HTMLElement>(blockSelectors));
 
-		// Find block containing key snippet of the sentence
-		const cleanSnippet = sentenceChunk.words
-			.slice(0, 4)
-			.map((w) => w.word.replace(/^[^\w]+|[^\w]+$/g, ""))
-			.filter((w) => w.length >= 2)
-			.join(" ");
+		// Find block containing key snippet of this sentence
+		const wordsList = sentenceChunk.words.map((w) => w.word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase());
+		const cleanSnippet = wordsList.slice(0, 4).filter((w) => w.length >= 2).join(" ");
 
 		let matchedBlock: HTMLElement | null = null;
-
 		if (cleanSnippet.length > 0) {
 			for (const block of candidateBlocks) {
 				const blockText = (block.textContent || "").toLowerCase();
-				if (blockText.includes(cleanSnippet.toLowerCase())) {
+				if (blockText.includes(cleanSnippet)) {
 					matchedBlock = block;
 					break;
 				}
 			}
 		}
 
-		// Fallback: match by first word if snippet was not found
-		if (!matchedBlock && sentenceChunk.words.length > 0) {
-			const firstWord = sentenceChunk.words[0].word.replace(/^[^\w]+|[^\w]+$/g, "").toLowerCase();
-			if (firstWord.length >= 2) {
+		// Fallback: match by first significant word
+		if (!matchedBlock) {
+			const firstSignificant = wordsList.find((w) => w.length >= 3);
+			if (firstSignificant) {
 				for (const block of candidateBlocks) {
 					const blockText = (block.textContent || "").toLowerCase();
-					if (blockText.includes(firstWord)) {
+					if (blockText.includes(firstSignificant)) {
 						matchedBlock = block;
 						break;
 					}
@@ -160,39 +174,187 @@ export class WordHighlighter {
 
 		this.activeBlockEl = matchedBlock || searchRoot;
 
-		// 2. Cache text nodes strictly inside this active block
-		const walker = document.createTreeWalker(this.activeBlockEl, NodeFilter.SHOW_TEXT);
-		let node = walker.nextNode();
-		while (node) {
-			if (node.nodeType === Node.TEXT_NODE && node.textContent && node.textContent.trim().length > 0) {
-				this.activeBlockTextNodes.push(node as Text);
-			}
-			node = walker.nextNode();
+		// 2. Build flat text segment map of the matched block
+		const blockMap = this.buildBlockTextMap(this.activeBlockEl);
+
+		// 3. Pin exact sentence boundary inside this block
+		this.pinSentenceAndWordRanges(blockMap, sentenceChunk);
+
+		// 4. Apply sentence-level highlight
+		if (this.activeSentenceRange) {
+			this.applySentenceHighlight(this.activeSentenceRange);
 		}
 
-		// 3. Smoothly center the block in viewport if autoScroll is enabled
+		// 5. Smoothly center the block in viewport if autoScroll is enabled
 		if (this.autoScrollEnabled && this.activeBlockEl) {
 			this.ensureVisibleInViewport(this.activeBlockEl, true);
 		}
 	}
 
 	/**
-	 * Updates the active word highlight based on current sentence elapsed time
+	 * Flattens all text nodes in the block into a single contiguous string with character offsets.
+	 */
+	private buildBlockTextMap(blockEl: HTMLElement): BlockTextMap {
+		const segments: TextNodeSegment[] = [];
+		let flattenedText = "";
+
+		const walker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
+		let node = walker.nextNode();
+
+		while (node) {
+			if (node.nodeType === Node.TEXT_NODE && node.textContent) {
+				const text = node.textContent;
+				const startOffset = flattenedText.length;
+				flattenedText += text;
+				const endOffset = flattenedText.length;
+
+				segments.push({
+					node: node as Text,
+					startOffset,
+					endOffset,
+					text,
+				});
+			}
+			node = walker.nextNode();
+		}
+
+		return {
+			blockEl,
+			segments,
+			flattenedText,
+		};
+	}
+
+	/**
+	 * Locates sentence boundary and precomputes monotonic DOM ranges for every word in the sentence.
+	 */
+	private pinSentenceAndWordRanges(blockMap: BlockTextMap, sentenceChunk: SentenceChunk): void {
+		const fullBlockText = blockMap.flattenedText;
+		if (!fullBlockText || sentenceChunk.words.length === 0) return;
+
+		// Extract first and last significant words to locate sentence boundary in this block
+		const firstWordClean = sentenceChunk.words[0].word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase();
+		const lastWordClean = sentenceChunk.words[sentenceChunk.words.length - 1].word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase();
+
+		let sentenceStartChar = -1;
+		let searchPos = 0;
+
+		// Search for first word matching sentence start
+		while (searchPos < fullBlockText.length) {
+			const idx = fullBlockText.toLowerCase().indexOf(firstWordClean, searchPos);
+			if (idx === -1) break;
+
+			// Verify if the second word also follows within reasonable range
+			if (sentenceChunk.words.length > 1) {
+				const secondWordClean = sentenceChunk.words[1].word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "").toLowerCase();
+				const nextSnippet = fullBlockText.slice(idx, idx + 80).toLowerCase();
+				if (nextSnippet.includes(secondWordClean)) {
+					sentenceStartChar = idx;
+					break;
+				}
+			} else {
+				sentenceStartChar = idx;
+				break;
+			}
+			searchPos = idx + firstWordClean.length;
+		}
+
+		if (sentenceStartChar === -1) {
+			sentenceStartChar = 0;
+		}
+
+		// Traverse strictly forward across sentence words starting from sentenceStartChar
+		let currentPos = sentenceStartChar;
+		let sentenceEndChar = sentenceStartChar;
+
+		for (let i = 0; i < sentenceChunk.words.length; i++) {
+			const w = sentenceChunk.words[i];
+			const clean = w.word.replace(/^[^\w\u00C0-\u024F]+|[^\w\u00C0-\u024F]+$/g, "");
+			if (!clean) continue;
+
+			// Search strictly forward from currentPos
+			const wordIdx = fullBlockText.toLowerCase().indexOf(clean.toLowerCase(), currentPos);
+			if (wordIdx !== -1) {
+				const startChar = wordIdx;
+				const endChar = wordIdx + clean.length;
+
+				// Create DOM Range for this specific word
+				const range = this.createRangeFromOffsets(blockMap.segments, startChar, endChar);
+				if (range) {
+					this.activeWordRanges.set(i, range);
+				}
+
+				currentPos = endChar;
+				sentenceEndChar = endChar;
+			}
+		}
+
+		// Set active sentence range spanning from sentenceStartChar to sentenceEndChar
+		if (sentenceEndChar > sentenceStartChar) {
+			this.activeSentenceRange = this.createRangeFromOffsets(blockMap.segments, sentenceStartChar, sentenceEndChar);
+		}
+	}
+
+	/**
+	 * Converts character start/end offsets in flattened block text into a DOM Range spanning Text nodes.
+	 */
+	private createRangeFromOffsets(segments: TextNodeSegment[], startChar: number, endChar: number): Range | null {
+		let startNode: Text | null = null;
+		let startOffsetInNode = 0;
+		let endNode: Text | null = null;
+		let endOffsetInNode = 0;
+
+		for (const seg of segments) {
+			if (!startNode && startChar >= seg.startOffset && startChar < seg.endOffset) {
+				startNode = seg.node;
+				startOffsetInNode = startChar - seg.startOffset;
+			}
+			if (endChar > seg.startOffset && endChar <= seg.endOffset) {
+				endNode = seg.node;
+				endOffsetInNode = endChar - seg.startOffset;
+				break;
+			}
+		}
+
+		// If endChar reached exactly the end of the block
+		if (startNode && !endNode && segments.length > 0) {
+			const last = segments[segments.length - 1];
+			endNode = last.node;
+			endOffsetInNode = last.text.length;
+		}
+
+		if (startNode && endNode) {
+			try {
+				const range = document.createRange();
+				range.setStart(startNode, Math.min(startOffsetInNode, startNode.textContent?.length || 0));
+				range.setEnd(endNode, Math.min(endOffsetInNode, endNode.textContent?.length || 0));
+				return range;
+			} catch {
+				return null;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Updates the active word highlight based on current sentence elapsed time.
+	 * Performs an instant O(1) dictionary lookup of the precomputed monotonic Range.
 	 */
 	public updateHighlight(sentenceIndex: number, currentElapsedSeconds: number): void {
 		const wordTimings = this.sentenceWordTimes[sentenceIndex];
 		const sentenceChunk = this.currentSentenceChunks[sentenceIndex];
 		if (!wordTimings || !sentenceChunk || wordTimings.length === 0) {
-			this.clearHighlight();
+			this.clearWordHighlight();
 			return;
 		}
 
-		// Ensure active block is pinned
-		if (this.activeBlockSentenceIndex !== sentenceIndex || !this.activeBlockEl) {
+		// Ensure active sentence and its word ranges are mapped
+		if (this.activeSentenceIndex !== sentenceIndex) {
 			this.setActiveSentence(sentenceIndex, sentenceChunk);
 		}
 
-		// Find which word corresponds to currentElapsedSeconds
+		// Find which word index corresponds to currentElapsedSeconds
 		let activeWordIndex = 0;
 		for (let i = 0; i < wordTimings.length; i++) {
 			if (currentElapsedSeconds >= wordTimings[i].startTime && currentElapsedSeconds < wordTimings[i].endTime) {
@@ -205,93 +367,17 @@ export class WordHighlighter {
 		}
 
 		if (this.lastHighlightedSentence === sentenceIndex && this.lastHighlightedWord === activeWordIndex) {
-			return; // Avoid unnecessary re-computations for the exact same word
-		}
-
-		const targetWord = sentenceChunk.words[activeWordIndex];
-		if (!targetWord) {
-			this.clearHighlight();
-			return;
+			return; // Avoid redundant repaint on the identical word
 		}
 
 		this.lastHighlightedSentence = sentenceIndex;
 		this.lastHighlightedWord = activeWordIndex;
 
-		this.applyHighlight(activeWordIndex, targetWord.word, sentenceChunk);
-	}
-
-	/**
-	 * Highlights targetWord strictly within the pinned active block container.
-	 */
-	private applyHighlight(wordIndex: number, targetWord: string, sentenceChunk: SentenceChunk): void {
-		if (!this.activeView || !this.activeBlockEl) {
-			return;
-		}
-
-		const cleanWord = targetWord.replace(/^[^\w]+|[^\w]+$/g, "");
-		if (!cleanWord) return;
-
-		// Calculate occurrence index of cleanWord in sentence up to wordIndex
-		let targetOccurrence = 0;
-		for (let i = 0; i < wordIndex; i++) {
-			const prev = sentenceChunk.words[i]?.word.replace(/^[^\w]+|[^\w]+$/g, "");
-			if (prev && prev.toLowerCase() === cleanWord.toLowerCase()) {
-				targetOccurrence++;
-			}
-		}
-
-		// Search strictly inside cached text nodes of active block
-		let currentOccurrence = 0;
-		let targetRange: Range | null = null;
-
-		for (const textNode of this.activeBlockTextNodes) {
-			const text = textNode.textContent || "";
-			const wordRegex = new RegExp(`\\b${this.escapeRegExp(cleanWord)}\\b`, "gi");
-			let match: RegExpExecArray | null;
-
-			while ((match = wordRegex.exec(text)) !== null) {
-				if (currentOccurrence === targetOccurrence) {
-					const range = document.createRange();
-					range.setStart(textNode, match.index);
-					range.setEnd(textNode, match.index + match[0].length);
-					targetRange = range;
-					break;
-				}
-				currentOccurrence++;
-			}
-			if (targetRange) break;
-		}
-
-		// Fallback: substring matching if punctuation/formatting broke boundary
-		if (!targetRange) {
-			currentOccurrence = 0;
-			for (const textNode of this.activeBlockTextNodes) {
-				const text = textNode.textContent || "";
-				let searchPos = 0;
-
-				while (searchPos < text.length) {
-					const idx = text.toLowerCase().indexOf(cleanWord.toLowerCase(), searchPos);
-					if (idx === -1) break;
-
-					if (currentOccurrence === targetOccurrence) {
-						const range = document.createRange();
-						range.setStart(textNode, idx);
-						range.setEnd(textNode, idx + cleanWord.length);
-						targetRange = range;
-						break;
-					}
-					currentOccurrence++;
-					searchPos = idx + cleanWord.length;
-				}
-				if (targetRange) break;
-			}
-		}
-
+		// Instant O(1) range lookup: guarantees zero backtracking, zero preposition skipping
+		const targetRange = this.activeWordRanges.get(activeWordIndex);
 		if (targetRange) {
-			this.currentHighlightRange = targetRange;
-			this.applyRangeHighlight(targetRange);
+			this.applyWordHighlight(targetRange);
 
-			// Viewport threshold check: only scroll if the word nears top/bottom margins
 			if (this.autoScrollEnabled) {
 				const nodeParent = targetRange.commonAncestorContainer.parentElement;
 				if (nodeParent) {
@@ -302,12 +388,112 @@ export class WordHighlighter {
 	}
 
 	/**
-	 * Checks if an element is comfortably inside the visible viewport.
-	 * Only scrolls if element is near the edges or outside, rate-limited to avoid jitter.
+	 * Highlights the active sentence container
 	 */
+	private applySentenceHighlight(range: Range): void {
+		if (this.isCssHighlightSupported()) {
+			try {
+				const HighlightConstructor = (window as unknown as { Highlight: typeof Range }).Highlight as unknown as new (range: Range) => unknown;
+				const highlight = new HighlightConstructor(range);
+				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.set(SENTENCE_HIGHLIGHT_NAME, highlight);
+				return;
+			} catch (err) {
+				console.warn("[let's hear it] CSS sentence highlight failed:", err);
+			}
+		}
+
+		// Fallback: DOM Span
+		this.removeFallbackSentenceSpan();
+		try {
+			const span = createSpan({ cls: "lets-hear-it-active-sentence" });
+			range.surroundContents(span);
+			this.fallbackSentenceSpan = span;
+		} catch {
+			// Expected if range crosses complex node boundaries
+		}
+	}
+
+	/**
+	 * Highlights the active word
+	 */
+	private applyWordHighlight(range: Range): void {
+		if (this.isCssHighlightSupported()) {
+			try {
+				const HighlightConstructor = (window as unknown as { Highlight: typeof Range }).Highlight as unknown as new (range: Range) => unknown;
+				const highlight = new HighlightConstructor(range);
+				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.set(WORD_HIGHLIGHT_NAME, highlight);
+				return;
+			} catch (err) {
+				console.warn("[let's hear it] CSS word highlight failed, using DOM fallback:", err);
+			}
+		}
+
+		// Fallback: DOM Span
+		this.removeFallbackWordSpan();
+		try {
+			const span = createSpan({ cls: "lets-hear-it-active-word" });
+			range.surroundContents(span);
+			this.fallbackWordSpan = span;
+		} catch {
+			// Range may cross element boundaries
+		}
+	}
+
+	private removeFallbackWordSpan(): void {
+		if (this.fallbackWordSpan && this.fallbackWordSpan.parentNode) {
+			const parent = this.fallbackWordSpan.parentNode;
+			while (this.fallbackWordSpan.firstChild) {
+				parent.insertBefore(this.fallbackWordSpan.firstChild, this.fallbackWordSpan);
+			}
+			parent.removeChild(this.fallbackWordSpan);
+			parent.normalize();
+			this.fallbackWordSpan = null;
+		}
+	}
+
+	private removeFallbackSentenceSpan(): void {
+		if (this.fallbackSentenceSpan && this.fallbackSentenceSpan.parentNode) {
+			const parent = this.fallbackSentenceSpan.parentNode;
+			while (this.fallbackSentenceSpan.firstChild) {
+				parent.insertBefore(this.fallbackSentenceSpan.firstChild, this.fallbackSentenceSpan);
+			}
+			parent.removeChild(this.fallbackSentenceSpan);
+			parent.normalize();
+			this.fallbackSentenceSpan = null;
+		}
+	}
+
+	public clearWordHighlight(): void {
+		this.lastHighlightedWord = -1;
+		if (this.isCssHighlightSupported()) {
+			try {
+				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(WORD_HIGHLIGHT_NAME);
+			} catch {}
+		}
+		this.removeFallbackWordSpan();
+	}
+
+	public clearHighlight(): void {
+		this.lastHighlightedSentence = -1;
+		this.lastHighlightedWord = -1;
+		this.activeSentenceIndex = -1;
+		this.activeSentenceRange = null;
+		this.activeWordRanges.clear();
+		this.activeBlockEl = null;
+
+		if (this.isCssHighlightSupported()) {
+			try {
+				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(WORD_HIGHLIGHT_NAME);
+				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(SENTENCE_HIGHLIGHT_NAME);
+			} catch {}
+		}
+
+		this.removeFallbackWordSpan();
+		this.removeFallbackSentenceSpan();
+	}
+
 	private ensureVisibleInViewport(element: HTMLElement, forceScroll = false): void {
 		const now = Date.now();
-		// Throttle viewport scrolling to avoid micro-jitter during speech
 		if (!forceScroll && now - this.lastScrollTimestamp < 1200) {
 			return;
 		}
@@ -316,80 +502,15 @@ export class WordHighlighter {
 			const rect = element.getBoundingClientRect();
 			const windowHeight = window.innerHeight || document.documentElement.clientHeight;
 
-			// Define comfortable top and bottom padding zones (120px)
 			const topMargin = 120;
 			const bottomMargin = windowHeight - 120;
-
 			const isComfortablyVisible = rect.top >= topMargin && rect.bottom <= bottomMargin;
 
 			if (!isComfortablyVisible || forceScroll) {
 				this.lastScrollTimestamp = now;
 				element.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
 			}
-		} catch {
-			// Expected: Element may be detached from active viewport DOM
-		}
-	}
-
-	private escapeRegExp(string: string): string {
-		return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	}
-
-	/**
-	 * Applies CSS Custom Highlight or fallback DOM decoration
-	 */
-	private applyRangeHighlight(range: Range): void {
-		if (this.isCssHighlightSupported()) {
-			try {
-				const HighlightConstructor = (window as unknown as { Highlight: typeof Range }).Highlight as unknown as new (range: Range) => unknown;
-				const highlight = new HighlightConstructor(range);
-				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.set(HIGHLIGHT_NAME, highlight);
-				return;
-			} catch (err) {
-				console.warn("[let's hear it] CSS Custom Highlight failed, using DOM fallback:", err);
-			}
-		}
-
-		// Fallback: DOM Span Highlight using Obsidian helper
-		this.removeFallbackSpan();
-		try {
-			const span = createSpan({ cls: "lets-hear-it-active-word" });
-			range.surroundContents(span);
-			this.fallbackSpanEl = span;
-		} catch {
-			// Expected: Range may cross node boundaries
-		}
-	}
-
-	private removeFallbackSpan(): void {
-		if (this.fallbackSpanEl && this.fallbackSpanEl.parentNode) {
-			const parent = this.fallbackSpanEl.parentNode;
-			while (this.fallbackSpanEl.firstChild) {
-				parent.insertBefore(this.fallbackSpanEl.firstChild, this.fallbackSpanEl);
-			}
-			parent.removeChild(this.fallbackSpanEl);
-			parent.normalize();
-			this.fallbackSpanEl = null;
-		}
-	}
-
-	public clearHighlight(): void {
-		this.currentHighlightRange = null;
-		this.lastHighlightedSentence = -1;
-		this.lastHighlightedWord = -1;
-		this.activeBlockEl = null;
-		this.activeBlockTextNodes = [];
-		this.activeBlockSentenceIndex = -1;
-
-		if (this.isCssHighlightSupported()) {
-			try {
-				(CSS as unknown as { highlights: Map<string, unknown> }).highlights.delete(HIGHLIGHT_NAME);
-			} catch {
-				// Expected: Highlight registration was already cleared
-			}
-		}
-
-		this.removeFallbackSpan();
+		} catch {}
 	}
 
 	private isCssHighlightSupported(): boolean {
