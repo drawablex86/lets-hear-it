@@ -15,7 +15,7 @@ This skill documents the exact architectural patterns, build transformations, of
 
 ---
 
-## ⚡ The 8 Critical Traps & Battle-Tested Solutions
+## ⚡ The 10 Critical Traps & Battle-Tested Solutions
 
 ### Trap 1: Dynamic ESM Import Failures on `file://` Protocols
 - **The Issue**: Libraries like `onnxruntime-web` or `@huggingface/transformers` dynamically call `import(fileUrl)` for `.mjs` helper scripts. In Electron's renderer, Chromium blocks dynamic `import()` on `file://` or `app://` URLs with CORS/protocol errors.
@@ -59,24 +59,21 @@ This skill documents the exact architectural patterns, build transformations, of
 
 ---
 
-### Trap 5: DOM Thrashing During Live Word Tracking
-- **The Issue**: Injecting `<span class="active-word">` into Obsidian's markdown view invalidates CodeMirror/Live-Preview state, disrupts typing, and causes severe layout reflows and frame drops during fast speech.
-- **The Solution**: Use the modern **CSS Custom Highlight API** (`CSS.highlights`):
-  1. Pin candidate block elements (`p`, `li`, `h1`-`h6`, `.cm-line`) using multi-word anchor snippets.
-  2. Compute occurrence-aware word indices (`targetOccurrence`) to handle duplicate words in a sentence without regression.
-  3. Update a single DOM `Range` and register it with `CSS.highlights.set("my-active-word", new Highlight(range))` inside a `requestAnimationFrame` loop.
-  4. Style with `::highlight(my-active-word) { background-color: var(--text-highlight-bg); }`.
-  *This provides 60 FPS real-time text tracking with **zero DOM mutations**.*
+### Trap 5: DOM Thrashing, Prefix Collision & Sequential Text Tracking
+- **The Issue**: Injecting `<span class="active-word">` into Obsidian's markdown view invalidates CodeMirror/Live-Preview state, disrupts typing, and causes severe layout reflows. Furthermore, in notes with repetitive phrases (e.g. dialogue, questions like `"How do you...?"`), naive word searches match earlier occurrences in the block, corrupting character offsets.
+- **The Solution**: 
+  1. Exclusively use the **CSS Custom Highlight API** (`CSS.highlights`) for zero-mutation text tracking.
+  2. Implement **Sequential Offset Tracking** (`lastMatchedSentenceEndOffset`): within any container block, subsequent sentences must search strictly forward from the previous sentence's ending offset.
+  3. Use **Multi-Word Anchor Phrases** (3-4 words, e.g. `anchorSnippet4` $\rightarrow$ `anchorSnippet3` $\rightarrow$ `anchorSnippet2`) before falling back to individual word tokens, eliminating prefix collisions.
   *See [references/css-highlight-api.md](./references/css-highlight-api.md).*
 
 ---
 
-### Trap 6: High Per-Sentence Inference Overhead & Buffer Starvation
-- **The Issue**: Processing text sentence-by-sentence incurs large model setup and graph dispatch overhead. On CPU WASM fallback, short sentences finish playing before the next one synthesizes, creating audible gaps.
-- **The Solution**: Multi-sentence chunking with instant start:
-  1. Group sentences into speech batches up to $\sim 350\text{--}400$ characters.
-  2. Synthesize Batch 0 immediately to start audio in **$<200\text{ms}$**.
-  3. Asynchronously pre-buffer Batch 1, Batch 2, etc., in the background queue.
+### Trap 6: Small-Context Model Token Overflows & Delimiter Lookahead
+- **The Issue**: Local on-device models (audio, embedding, translation) have strict context limits (e.g. 500 phoneme tokens / 256-512 tokens). Splitting text by simple punctuation-plus-whitespace (`/\s/.test(nextChar)`) fails when punctuation is followed by closing quotes (`?”`), parentheses (`)`), brackets (`]`), footnotes (`[^1]`), or markdown formatting (`**`, `==`), merging entire paragraphs into monster chunks that overflow model context windows and stall inference.
+- **The Solution**: 
+  1. Tokenizers must look past all closing delimiters (`['"’”\)\]\}\*_~]`) before checking for whitespace boundaries.
+  2. Implement a **Hard-Ceiling Clause Fallback**: split run-on sentences exceeding $\sim 300\text{--}350$ characters at natural clause boundaries (semicolons, colons, em-dashes, commas), guaranteeing the model never exceeds its context window.
 
 ---
 
@@ -100,6 +97,30 @@ This skill documents the exact architectural patterns, build transformations, of
   3. Use Obsidian's `requestUrl` to download matching, version-pinned binaries directly into the plugin directory.
   4. Execute models 100% offline from local disk once downloaded.
   *See [references/electron-sandbox-rules.md](./references/electron-sandbox-rules.md).*
+
+---
+
+### Trap 9: The CPU WASM Fallback Trap (Why CPU Inference Freezes Electron)
+- **The Issue**: In theory, running small neural models (e.g. 50-100M parameter models) on CPU WASM seems like a solid universal fallback. In practice, inside Obsidian's Electron sandbox:
+  1. Spawning WASM SIMD threads (`SharedArrayBuffer` workers) causes severe thread contention with Electron's UI/renderer thread pool and audio scheduling.
+  2. On Apple Silicon (macOS unified memory), CPU SIMD lacks direct access to the GPU/Neural Engine, resulting in $\ge 15\times$ slower token generation than WebGPU.
+  3. Even at low compute loads, CPU tensor passes monopolize execution cores, causing UI input freezes, audio buffer starvation (crackling/stuttering), and system lag. Dynamic CPU core heuristics fail to resolve this because Electron shares thread scheduling with the UI.
+- **The Solution**:
+  1. **WebGPU is mandatory for real-time, interactive local inference** (TTS, live transcription, real-time embeddings).
+  2. Treat CPU WASM strictly as a non-real-time offline fallback for asynchronous batch processing (e.g. background file export) where processing occurs decoupled from the active UI.
+  *See [references/electron-sandbox-rules.md](./references/electron-sandbox-rules.md).*
+
+---
+
+### Trap 10: CodeMirror Mutation Thrashing & The Catastrophic `normalize()` Freeze
+- **The Issue**: When attempting fallback DOM highlighting (e.g. wrapping text nodes in temporary `<span>` tags via `range.surroundContents(span)`), developers frequently clean up elements by calling `parent.normalize()`.
+  In Obsidian's Reading View and Live Preview (CodeMirror 6), calling `.normalize()` directly mutates CodeMirror's internally managed Text nodes. CodeMirror's DOM MutationObservers intercept this and trigger synchronous layout re-computations and document re-parsing on every word update (every 50-100ms).
+  This throws the Electron renderer into an infinite layout thrash loop, causing the **entire Obsidian application window to freeze completely**.
+- **The Solution**:
+  1. **NEVER call `normalize()` or `surroundContents()`** on DOM elements inside Obsidian view containers (`.markdown-reading-view`, `.cm-content`).
+  2. **Exclusively use the CSS Custom Highlight API (`CSS.highlights`)**: it operates entirely on the browser's compositing layer, leaving the DOM tree untouched with zero CodeMirror mutations.
+  3. If CSS Custom Highlight is unsupported, gracefully skip inline visual tracking rather than risking destructive DOM mutations that can lock up the user's workspace.
+  *See [references/css-highlight-api.md](./references/css-highlight-api.md).*
 
 ---
 
